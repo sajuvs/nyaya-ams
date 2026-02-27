@@ -12,3 +12,6 @@ sentence-transformers
 typesense
 faiss-cpu
 chromadb
+langchain-groq
+pytest
+
