@@ -1,10 +1,12 @@
 import re
-from langchain.tools import tool
+import os
+from dotenv import load_dotenv
+from langchain_core.tools import tool
 from tavily import TavilyClient
-from app.core.config import settings
 
+load_dotenv()
 
-tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 
 ALLOWED_DOMAINS = [
