@@ -15,6 +15,8 @@ from datetime import datetime
 from ..agents.researcher import ResearcherAgent
 from ..agents.drafter import DrafterAgent
 from ..agents.expert_reviewer import ExpertReviewerAgent
+from src.search import RAGSearch
+from tools.tavily_tool import tavily_search_tool
 
 logger = logging.getLogger(__name__)
 
@@ -70,17 +72,73 @@ class LegalAidOrchestrator:
         self.researcher = ResearcherAgent()
         self.drafter = DrafterAgent()
         self.expert_reviewer = ExpertReviewerAgent()
-        logger.info("LegalAidOrchestrator initialized with 3 agents")
+        self.rag_search = RAGSearch()
+        logger.info("LegalAidOrchestrator initialized with 3 agents and RAG search")
     
-    async def generate_legal_aid(
-        self, 
-        grievance: str, 
-        rag_context: str = ""
-    ) -> Dict[str, Any]:
+    async def _gather_context(self, grievance: str, trace: AgentTrace) -> str:
+        """
+        Gather legal context from both local documents and web sources.
+        
+        Args:
+            grievance: The user's legal issue
+            trace: Agent trace for logging
+            
+        Returns:
+            Combined context from RAG and Tavily searches
+        """
+        trace.add(
+            "orchestrator",
+            "gathering_context",
+            "Searching local Kerala acts (RAG) and online legal resources (Tavily)"
+        )
+        
+        # 1. RAG Search for local Kerala acts
+        try:
+            local_context = self.rag_search.search_and_summarize(grievance, top_k=3)
+            trace.add(
+                "rag_search",
+                "local_search_complete",
+                f"Retrieved {len(local_context)} characters from local legal documents"
+            )
+        except Exception as e:
+            logger.warning(f"RAG search failed: {e}")
+            local_context = "No local documents found."
+        
+        # 2. Tavily Search for online legal resources
+        try:
+            tavily_results = tavily_search_tool.func(grievance)
+            web_sources = tavily_results.get("sources", [])
+            web_context = "\n\n".join([f"{s['title']}: {s['content']}" for s in web_sources[:3]])
+            trace.add(
+                "tavily_search",
+                "web_search_complete",
+                f"Found {tavily_results.get('total_results', 0)} relevant online sources"
+            )
+        except Exception as e:
+            logger.warning(f"Tavily search failed: {e}")
+            web_context = "No online resources found."
+        
+        # 3. Combine contexts
+        combined = f"""LOCAL KERALA ACTS (from PDF store):
+{local_context}
+
+ONLINE LEGAL RESOURCES:
+{web_context}"""
+        
+        trace.add(
+            "orchestrator",
+            "context_ready",
+            f"Context gathering complete. Total context: {len(combined)} characters"
+        )
+        
+        return combined
+    
+    async def generate_legal_aid(self, grievance: str) -> Dict[str, Any]:
         """
         Generate a legal aid document through multi-agent collaboration.
         
         This method orchestrates the complete workflow:
+        - Context gathering: Search local PDFs (RAG) and web (Tavily)
         - Research phase: Analyze grievance and identify legal provisions
         - Drafting phase: Create formal legal petition
         - Review phase: Audit for compliance and accuracy
@@ -88,7 +146,6 @@ class LegalAidOrchestrator:
         
         Args:
             grievance: The user's plain-text description of their legal issue
-            rag_context: Additional legal context from vector store (optional)
             
         Returns:
             Dictionary containing:
@@ -100,6 +157,9 @@ class LegalAidOrchestrator:
             - status: "approved" or "max_iterations_reached"
         """
         trace = AgentTrace()
+        
+        # Phase 0: Context Gathering
+        rag_context = await self._gather_context(grievance, trace)
         
         # Phase 1: Research
         trace.add(

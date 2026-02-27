@@ -47,10 +47,7 @@ async def generate_legal_aid(request: LegalAidRequest) -> LegalAidResponse:
         logger.info(f"Received legal aid request: {request.grievance[:100]}...")
         
         orchestrator = LegalAidOrchestrator()
-        result = await orchestrator.generate_legal_aid(
-            grievance=request.grievance,
-            rag_context=request.rag_context
-        )
+        result = await orchestrator.generate_legal_aid(grievance=request.grievance)
         
         logger.info(f"Legal aid generation complete. Status: {result['status']}")
         return LegalAidResponse(**result)
