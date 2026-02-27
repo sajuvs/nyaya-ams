@@ -365,9 +365,13 @@ ONLINE LEGAL RESOURCES:
         })
         
         result = {
-            "session_id": session_id,
             "final_document": session["current_draft"],
             "research_findings": session["approved_research"],
+            "review_result": {
+                "is_approved": True,
+                "feedback": "",
+                "reasoning": "Human approved the final draft"
+            },
             "agent_traces": trace.to_dict(),
             "iterations": session.get("iteration", 1),
             "status": "approved_by_human",

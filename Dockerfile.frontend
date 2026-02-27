@@ -11,6 +11,9 @@ RUN npm i
 # Copy frontend code
 COPY frontend/ .
 
+# Set default environment variable
+ENV VITE_API_URL=http://localhost:8000/api/v1
+
 # Expose port
 EXPOSE 5173
 
