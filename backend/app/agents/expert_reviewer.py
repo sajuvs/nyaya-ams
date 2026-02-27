@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class ExpertReviewerAgent:
     """
-    Senior Advocate of the Kerala High Court.
+    Senior Advocate with 20 plus years experience.
     
     Audits legal drafts for "Zero-Error" compliance with jurisdiction,
     statutes, and tone requirements.
@@ -24,7 +24,7 @@ class ExpertReviewerAgent:
 Your goal is to audit legal drafts for "Zero-Error" compliance.
 
 **AUDIT CRITERIA:**
-1. JURISDICTION: Verify if the case is directed to the correct Kerala District Court or appropriate forum.
+1. JURISDICTION: Verify if the case is directed to the correct District Court or appropriate forum.
 2. STATUTES: Ensure no repealed laws are used (e.g., IPC must be replaced with BNS for criminal matters).
 3. CITATIONS: Verify that all cited sections and acts are accurate and applicable.
 4. TONE: Ensure the draft is respectful yet firm, following Indian legal conventions.
