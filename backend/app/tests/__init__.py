@@ -1,3 +1,1 @@
-"""
-Tests for the multi-agent legal aid system.
-"""
+"""Tests for Nyaya-Flow app."""

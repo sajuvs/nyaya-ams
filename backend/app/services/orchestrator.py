@@ -17,6 +17,7 @@ from ..agents.drafter import DrafterAgent
 from ..agents.expert_reviewer import ExpertReviewerAgent
 from src.search import RAGSearch
 from tools.tavily_tool import tavily_search_tool
+from .workflow_state import WorkflowState
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,251 @@ ONLINE LEGAL RESOURCES:
         )
         
         return combined
+    
+    async def start_research(self, grievance: str) -> Dict[str, Any]:
+        """Start workflow and return research findings for human review.
+        
+        Args:
+            grievance: User's legal issue
+            
+        Returns:
+            Dictionary with session_id, research findings, and traces
+        """
+        session_id = WorkflowState.create_session(grievance)
+        trace = AgentTrace()
+        
+        # Context Gathering
+        rag_context = await self._gather_context(grievance, trace)
+        
+        # Research Phase
+        trace.add(
+            "researcher",
+            "analyzing_grievance",
+            f"Scanning Indian legal statutes for provisions relevant to: '{grievance[:100]}...'"
+        )
+        
+        research_findings = await self.researcher.analyze(grievance, rag_context)
+        
+        trace.add(
+            "researcher",
+            "research_complete",
+            f"Identified {len(research_findings.get('legal_provisions', []))} legal provisions. "
+            f"Awaiting human review and approval."
+        )
+        
+        # Save state
+        WorkflowState.update_session(session_id, {
+            "stage": "awaiting_research_approval",
+            "research_findings": research_findings,
+            "rag_context": rag_context,
+            "agent_traces": trace.to_dict()
+        })
+        
+        return {
+            "session_id": session_id,
+            "stage": "awaiting_research_approval",
+            "research_findings": research_findings,
+            "agent_traces": trace.to_dict(),
+            "message": "Please review and approve the research findings to continue."
+        }
+    
+    async def continue_with_draft(self, session_id: str, approved_research: Dict[str, Any]) -> Dict[str, Any]:
+        """Continue workflow with approved research and generate draft.
+        
+        Args:
+            session_id: Workflow session ID
+            approved_research: Human-approved/edited research findings
+            
+        Returns:
+            Dictionary with draft and traces for human review
+        """
+        session = WorkflowState.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        
+        if session["stage"] != "awaiting_research_approval":
+            raise ValueError(f"Invalid stage: {session['stage']}")
+        
+        grievance = session["grievance"]
+        trace = AgentTrace()
+        trace.traces = session.get("agent_traces", [])
+        
+        trace.add(
+            "human",
+            "research_approved",
+            f"Human reviewed and approved research findings. Proceeding to drafting."
+        )
+        
+        # Generate initial draft
+        trace.add(
+            "drafter",
+            "creating_initial_draft",
+            f"Incorporating legal provisions into formal petition structure."
+        )
+        
+        draft = await self.drafter.draft(grievance, approved_research, "")
+        
+        trace.add(
+            "drafter",
+            "draft_complete",
+            f"Generated {len(draft)} character petition. Awaiting human review."
+        )
+        
+        # Save state
+        WorkflowState.update_session(session_id, {
+            "stage": "awaiting_draft_review",
+            "approved_research": approved_research,
+            "current_draft": draft,
+            "agent_traces": trace.to_dict(),
+            "iteration": 1
+        })
+        
+        return {
+            "session_id": session_id,
+            "stage": "awaiting_draft_review",
+            "draft": draft,
+            "research_findings": approved_research,
+            "agent_traces": trace.to_dict(),
+            "iteration": 1,
+            "max_iterations": self.MAX_ITERATIONS,
+            "remaining_iterations": self.MAX_ITERATIONS - 1,
+            "message": f"Please review the draft (Iteration 1/{self.MAX_ITERATIONS}). "
+                      f"Approve or provide feedback for refinement ({self.MAX_ITERATIONS - 1} refinements remaining)."
+        }
+    
+    async def refine_draft(self, session_id: str, human_feedback: str) -> Dict[str, Any]:
+        """Refine draft based on human feedback.
+        
+        Args:
+            session_id: Workflow session ID
+            human_feedback: Human's feedback for refinement
+            
+        Returns:
+            Dictionary with refined draft for review
+        """
+        session = WorkflowState.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        
+        if session["stage"] != "awaiting_draft_review":
+            raise ValueError(f"Invalid stage: {session['stage']}")
+        
+        grievance = session["grievance"]
+        approved_research = session["approved_research"]
+        iteration = session.get("iteration", 1) + 1
+        
+        if iteration > self.MAX_ITERATIONS:
+            trace = AgentTrace()
+            trace.traces = session.get("agent_traces", [])
+            trace.add(
+                "orchestrator",
+                "max_iterations_reached",
+                f"Maximum refinement iterations ({self.MAX_ITERATIONS}) reached. "
+                f"Please finalize the current draft or start a new workflow."
+            )
+            WorkflowState.update_session(session_id, {
+                "agent_traces": trace.to_dict()
+            })
+            raise ValueError(
+                f"Maximum iterations ({self.MAX_ITERATIONS}) reached. "
+                f"Current draft is the best available. Please approve or start new workflow."
+            )
+        
+        trace = AgentTrace()
+        trace.traces = session.get("agent_traces", [])
+        
+        trace.add(
+            "human",
+            "feedback_provided",
+            f"Human provided feedback for refinement (Iteration {iteration}): {human_feedback[:150]}..."
+        )
+        
+        trace.add(
+            "drafter",
+            f"refining_draft_iteration_{iteration}",
+            f"Addressing human feedback."
+        )
+        
+        draft = await self.drafter.draft(grievance, approved_research, human_feedback)
+        
+        trace.add(
+            "drafter",
+            "draft_refined",
+            f"Refined draft complete ({len(draft)} characters). Awaiting human review."
+        )
+        
+        # Save state
+        WorkflowState.update_session(session_id, {
+            "current_draft": draft,
+            "agent_traces": trace.to_dict(),
+            "iteration": iteration
+        })
+        
+        return {
+            "session_id": session_id,
+            "stage": "awaiting_draft_review",
+            "draft": draft,
+            "research_findings": approved_research,
+            "agent_traces": trace.to_dict(),
+            "iteration": iteration,
+            "max_iterations": self.MAX_ITERATIONS,
+            "remaining_iterations": self.MAX_ITERATIONS - iteration,
+            "message": f"Please review the refined draft (Iteration {iteration}/{self.MAX_ITERATIONS}). "
+                      f"Approve or provide additional feedback ({self.MAX_ITERATIONS - iteration} refinements remaining)."
+        }
+    
+    async def finalize_workflow(self, session_id: str) -> Dict[str, Any]:
+        """Finalize workflow with human approval.
+        
+        Args:
+            session_id: Workflow session ID
+            
+        Returns:
+            Final approved document with complete traces
+        """
+        session = WorkflowState.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        
+        if session["stage"] != "awaiting_draft_review":
+            raise ValueError(f"Invalid stage: {session['stage']}")
+        
+        trace = AgentTrace()
+        trace.traces = session.get("agent_traces", [])
+        
+        trace.add(
+            "human",
+            "draft_approved",
+            "Human approved the final draft. Workflow complete."
+        )
+        
+        trace.add(
+            "orchestrator",
+            "workflow_complete",
+            f"Legal aid generation complete with human approval. "
+            f"Total iterations: {session.get('iteration', 1)}. Document ready for submission."
+        )
+        
+        # Update state
+        WorkflowState.update_session(session_id, {
+            "stage": "complete",
+            "agent_traces": trace.to_dict()
+        })
+        
+        result = {
+            "session_id": session_id,
+            "final_document": session["current_draft"],
+            "research_findings": session["approved_research"],
+            "agent_traces": trace.to_dict(),
+            "iterations": session.get("iteration", 1),
+            "status": "approved_by_human",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Clean up session
+        WorkflowState.delete_session(session_id)
+        
+        return result
     
     async def generate_legal_aid(self, grievance: str) -> Dict[str, Any]:
         """

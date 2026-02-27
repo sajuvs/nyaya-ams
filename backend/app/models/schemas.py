@@ -89,3 +89,32 @@ class LegalAidResponse(BaseModel):
                 "timestamp": "2026-02-27T10:00:00"
             }
         }
+
+
+class ResearchApprovalRequest(BaseModel):
+    """Request to approve/edit research findings."""
+    
+    session_id: str = Field(..., description="Workflow session ID")
+    approved_research: Dict[str, Any] = Field(..., description="Human-approved research findings")
+
+
+class DraftReviewRequest(BaseModel):
+    """Request to provide feedback on draft."""
+    
+    session_id: str = Field(..., description="Workflow session ID")
+    feedback: str = Field(..., description="Human feedback for refinement")
+
+
+class FinalizeRequest(BaseModel):
+    """Request to finalize and approve workflow."""
+    
+    session_id: str = Field(..., description="Workflow session ID")
+
+
+class WorkflowStatusResponse(BaseModel):
+    """Response for workflow status check."""
+    
+    session_id: str
+    stage: str
+    message: str
+    data: Optional[Dict[str, Any]] = None

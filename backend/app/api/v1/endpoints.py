@@ -1,12 +1,19 @@
-"""
-API v1 Endpoints for Legal Aid Generation.
-"""
+"""API v1 Endpoints for Legal Aid Generation."""
 import logging
+from typing import Dict
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from ...models.schemas import LegalAidRequest, LegalAidResponse
+from ...models.schemas import (
+    LegalAidRequest, 
+    LegalAidResponse,
+    ResearchApprovalRequest,
+    DraftReviewRequest,
+    FinalizeRequest,
+    WorkflowStatusResponse
+)
 from ...services.orchestrator import LegalAidOrchestrator
+from ...services.workflow_state import WorkflowState
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +80,156 @@ async def health_check():
             "status": "healthy",
             "service": "Nyaya-Flow Legal Aid API",
             "version": "1.0.0",
-            "agents": ["researcher", "drafter", "expert_reviewer"]
+            "agents": ["researcher", "drafter", "expert_reviewer"],
+            "mode": "human-in-the-loop"
         }
+    )
+
+
+# ===== HUMAN-IN-THE-LOOP ENDPOINTS =====
+
+@router.post(
+    "/start-legal-aid",
+    status_code=status.HTTP_200_OK,
+    summary="Start Legal Aid Workflow",
+    description="Start workflow and return research findings for human review"
+)
+async def start_legal_aid(request: LegalAidRequest) -> Dict:
+    """Start workflow with research phase."""
+    try:
+        logger.info(f"Starting HITL workflow: {request.grievance[:100]}...")
+        
+        orchestrator = LegalAidOrchestrator()
+        result = await orchestrator.start_research(request.grievance)
+        
+        logger.info(f"Research complete. Session: {result['session_id']}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start workflow: {str(e)}"
+        )
+
+
+@router.post(
+    "/approve-research",
+    status_code=status.HTTP_200_OK,
+    summary="Approve Research Findings",
+    description="Approve/edit research and continue to drafting phase"
+)
+async def approve_research(request: ResearchApprovalRequest) -> Dict:
+    """Continue workflow with approved research."""
+    try:
+        logger.info(f"Research approved for session: {request.session_id}")
+        
+        orchestrator = LegalAidOrchestrator()
+        result = await orchestrator.continue_with_draft(
+            request.session_id,
+            request.approved_research
+        )
+        
+        logger.info(f"Draft generated for session: {request.session_id}")
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error approving research: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to approve research: {str(e)}"
+        )
+
+
+@router.post(
+    "/review-draft",
+    status_code=status.HTTP_200_OK,
+    summary="Provide Draft Feedback",
+    description="Provide feedback to refine the draft"
+)
+async def review_draft(request: DraftReviewRequest) -> Dict:
+    """Refine draft based on human feedback."""
+    try:
+        logger.info(f"Draft feedback received for session: {request.session_id}")
+        
+        orchestrator = LegalAidOrchestrator()
+        result = await orchestrator.refine_draft(
+            request.session_id,
+            request.feedback
+        )
+        
+        logger.info(f"Draft refined for session: {request.session_id}")
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error refining draft: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to refine draft: {str(e)}"
+        )
+
+
+@router.post(
+    "/finalize-legal-aid",
+    response_model=LegalAidResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Finalize Legal Aid Document",
+    description="Approve final draft and complete workflow"
+)
+async def finalize_legal_aid(request: FinalizeRequest) -> LegalAidResponse:
+    """Finalize workflow with human approval."""
+    try:
+        logger.info(f"Finalizing workflow for session: {request.session_id}")
+        
+        orchestrator = LegalAidOrchestrator()
+        result = await orchestrator.finalize_workflow(request.session_id)
+        
+        logger.info(f"Workflow finalized for session: {request.session_id}")
+        return LegalAidResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error finalizing workflow: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to finalize workflow: {str(e)}"
+        )
+
+
+@router.get(
+    "/workflow-status/{session_id}",
+    response_model=WorkflowStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Workflow Status",
+    description="Check current status of a workflow session"
+)
+async def get_workflow_status(session_id: str) -> WorkflowStatusResponse:
+    """Get current workflow status."""
+    session = WorkflowState.get_session(session_id)
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} not found"
+        )
+    
+    return WorkflowStatusResponse(
+        session_id=session_id,
+        stage=session["stage"],
+        message=f"Workflow is at stage: {session['stage']}",
+        data={"created_at": session["created_at"], "updated_at": session["updated_at"]}
     )
