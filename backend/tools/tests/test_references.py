@@ -1,6 +1,10 @@
 """Tests for reference number handling in _clean_text."""
 
-from backend.tools.tavily_tool import _clean_text
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from tavily_tool import _clean_text
 
 
 class TestReferenceNumbers:

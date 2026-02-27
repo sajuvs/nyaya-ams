@@ -1,6 +1,10 @@
 """All _clean_text edge cases: empty, unicode, URLs, markdown, boilerplate, dedup, truncation."""
 
-from backend.tools.tavily_tool import _clean_text, MAX_CONTENT_LENGTH
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from tavily_tool import _clean_text, MAX_CONTENT_LENGTH
 
 
 class TestEmptyInputs:
