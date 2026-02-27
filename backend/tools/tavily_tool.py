@@ -12,32 +12,41 @@ ALLOWED_DOMAINS = [
     "kerala.gov.in",
     "hckreform.gov.in",
     "main.sci.gov.in",
-    "consumerhelpline.gov.in"
+    "consumerhelpline.gov.in",
+    "prsindia.org",
+    "lawreformscommission.kerala.gov.in",
+    "niyamasabha.org",
 ]
 
 
 @tool("tavily_search")
-def tavily_search_tool(query: str) -> str:
+def tavily_search_tool(query: str) -> dict:
     """
-    Search ONLY official Indian legal and Kerala government sources.
+    Search legal information from trusted Indian government domains only.
+    Returns RAW structured data (no AI-generated summary).
     """
 
     response = tavily_client.search(
         query=query,
         search_depth="advanced",
-        include_answer=True,
+        include_answer=False,
         include_sources=True,
-        include_domains=ALLOWED_DOMAINS  # 🔥 Restrict to trusted sites
+        include_domains=ALLOWED_DOMAINS
     )
 
-    formatted_results = []
+    # Extra safety filter (double validation)
+    sources = [
+        {
+            "title": r.get("title"),
+            "url": r.get("url"),
+            "content": r.get("content")
+        }
+        for r in response.get("results", [])[:5]
+        if any(domain in r.get("url", "") for domain in ALLOWED_DOMAINS)
+    ]
 
-    if response.get("answer"):
-        formatted_results.append(f"Answer:\n{response['answer']}")
-
-    for result in response.get("results", [])[:5]:
-        formatted_results.append(
-            f"\nSource: {result.get('url')}\nContent: {result.get('content')}"
-        )
-
-    return "\n".join(formatted_results)
+    return {
+        "query": query,
+        "allowed_domains": ALLOWED_DOMAINS,
+        "sources": sources
+    }
