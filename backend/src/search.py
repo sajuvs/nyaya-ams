@@ -6,14 +6,14 @@ from langchain_groq import ChatGroq
 load_dotenv()
 
 class RAGSearch:
-    def __init__(self, persist_dir: str = "data/faiss_store", embedding_model: str = "all-MiniLM-L6-v2", llm_model: str = "gemma2-9b-it"):
+    def __init__(self, persist_dir: str = "data/faiss_store", embedding_model: str = "all-MiniLM-L6-v2", llm_model: str = "llama-3.3-70b-versatile"):
         self.vectorstore = FaissVectorStore(persist_dir, embedding_model)
         # Load or build vectorstore
         faiss_path = os.path.join(persist_dir, "faiss.index")
         meta_path = os.path.join(persist_dir, "metadata.pkl")
         if not (os.path.exists(faiss_path) and os.path.exists(meta_path)):
             from src.data_loader import load_all_documents
-            docs = load_all_documents("docustore/pdf")
+            docs = load_all_documents("../docustore/pdf")
             self.vectorstore.build_from_documents(docs)
         else:
             self.vectorstore.load()
