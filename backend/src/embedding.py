@@ -92,7 +92,7 @@ class EmbeddingPipeline:
 # Example usage
 if __name__ == "__main__":
     
-    docs = load_all_documents("../docustore/pdf")
+    docs = load_all_documents("docustore/pdf")
     emb_pipe = EmbeddingPipeline()
     chunks = emb_pipe.chunk_documents(docs)
     embeddings = emb_pipe.embed_chunks(chunks)

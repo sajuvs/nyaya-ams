@@ -13,5 +13,5 @@ typesense
 faiss-cpu
 chromadb
 langchain-groq
+tavily-python
 pytest
-

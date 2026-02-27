@@ -150,6 +150,6 @@ def load_all_documents(data_dir: str) -> List[Any]:
 
 # Example usage
 if __name__ == "__main__":
-    docs = load_all_documents("../docustore/pdf")
+    docs = load_all_documents("docustore/pdf")
     print(f"Loaded {len(docs)} documents.")
     print("Example document:", docs[0] if docs else None)

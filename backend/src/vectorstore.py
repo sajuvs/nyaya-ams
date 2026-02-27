@@ -173,7 +173,7 @@ class FaissVectorStore:
 # Example usage
 if __name__ == "__main__":
     from src.data_loader import load_all_documents
-    docs = load_all_documents("../docustore/pdf")
+    docs = load_all_documents("docustore/pdf")
     store = FaissVectorStore("data/faiss_store")
     store.build_from_documents(docs)
     store.load()
