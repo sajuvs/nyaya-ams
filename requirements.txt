@@ -8,3 +8,7 @@ langchain-google-genai
 pypdf
 pymupdf
 ipykernel
+sentence-transformers
+typesense
+faiss-cpu
+chromadb
