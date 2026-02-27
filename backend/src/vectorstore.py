@@ -27,7 +27,7 @@ import numpy as np
 import pickle
 from typing import List, Any
 from sentence_transformers import SentenceTransformer
-from embedding import EmbeddingPipeline
+from src.embedding import EmbeddingPipeline
 
 class FaissVectorStore:
     """FAISS-based vector store for semantic search over legal documents.
@@ -46,7 +46,7 @@ class FaissVectorStore:
         chunk_overlap (int): Overlapping characters between consecutive chunks.
     """
     
-    def __init__(self, persist_dir: str = "faiss_store", embedding_model: str = "all-MiniLM-L6-v2", chunk_size: int = 1000, chunk_overlap: int = 200):
+    def __init__(self, persist_dir: str = "data/faiss_store", embedding_model: str = "all-MiniLM-L6-v2", chunk_size: int = 1000, chunk_overlap: int = 200):
         """Initialize the FAISS vector store with embedding configuration.
         
         Args:
@@ -172,9 +172,9 @@ class FaissVectorStore:
 
 # Example usage
 if __name__ == "__main__":
-    from data_loader import load_all_documents
-    docs = load_all_documents("data")
-    store = FaissVectorStore("faiss_store")
+    from src.data_loader import load_all_documents
+    docs = load_all_documents("docustore/pdf")
+    store = FaissVectorStore("data/faiss_store")
     store.build_from_documents(docs)
     store.load()
     print(store.query("What is attention mechanism?", top_k=3))
