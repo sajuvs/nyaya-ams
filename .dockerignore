@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+*.md
+.DS_Store
+.vscode
+.idea
+*.log
+.env
+uv.lock
+backend/data/faiss_store

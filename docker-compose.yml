@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  nyaya-ams:
+    build: .
+    container_name: nyaya-ams-backend
+    volumes:
+      - ./backend:/app/backend
+      - ./backend/data:/app/backend/data
+      - ./backend/docustore:/app/backend/docustore
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
