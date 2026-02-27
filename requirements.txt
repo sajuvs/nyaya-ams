@@ -15,3 +15,7 @@ chromadb
 langchain-groq
 tavily-python
 pytest
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.0.0
+

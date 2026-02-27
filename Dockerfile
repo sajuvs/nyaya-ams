@@ -21,4 +21,8 @@ WORKDIR /app/backend
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "app.py"]
+# Expose port for FastAPI
+EXPOSE 8000
+
+# Run FastAPI application (can be overridden in docker-compose)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
