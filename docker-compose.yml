@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   nyaya-ams:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: nyaya-ams-backend
     volumes:
       - ./backend:/app/backend
@@ -10,7 +12,10 @@ services:
       - ./backend/docustore:/app/backend/docustore
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - HF_TOKEN=${HF_TOKEN}
+      - PYTHONUNBUFFERED=1
     ports:
       - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
