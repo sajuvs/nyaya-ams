@@ -10,6 +10,7 @@ services:
       - ./backend:/app/backend
       - ./backend/data:/app/backend/data
       - ./backend/docustore:/app/backend/docustore
+      - ~/.cache/huggingface:/root/.cache/huggingface
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
