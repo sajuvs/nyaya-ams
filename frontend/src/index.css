@@ -1,0 +1,50 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --color-bg: #0a0a0f;
+  --color-surface: #0f0f1a;
+  --color-border: #1a1a2e;
+  --color-cyan: #00f5ff;
+  --color-purple: #bf00ff;
+  --color-pink: #ff006e;
+  --color-text: #e0e0ff;
+  --color-muted: #4a4a6a;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #0a0a0f;
+  color: #e0e0ff;
+  font-family: var(--font-mono);
+  margin: 0;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #0f0f1a;
+}
+::-webkit-scrollbar-thumb {
+  background: #00f5ff44;
+  border-radius: 2px;
+}
+
+.neon-cyan {
+  text-shadow: 0 0 10px #00f5ff, 0 0 20px #00f5ff44;
+}
+.neon-purple {
+  text-shadow: 0 0 10px #bf00ff, 0 0 20px #bf00ff44;
+}
+.glow-border-cyan {
+  box-shadow: 0 0 0 1px #00f5ff44, inset 0 0 20px #00f5ff08;
+}
+.glow-border-purple {
+  box-shadow: 0 0 0 1px #bf00ff44, inset 0 0 20px #bf00ff08;
+}
