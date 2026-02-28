@@ -18,7 +18,7 @@ from ..agents.expert_reviewer import ExpertReviewerAgent
 from src.search import RAGSearch
 from tools.tavily_tool import create_tavily_search_tool, TavilySearchConfig
 from .workflow_state import WorkflowState
-from config.domain_loader import DomainLoader
+from ..utils.pii_redactor import pii_redactor
 
 logger = logging.getLogger(__name__)
 
@@ -178,25 +178,29 @@ class LegalAidOrchestrator:
         Returns:
             Dictionary with session_id, research findings, and traces
         """
+        # Redact PII before processing
+        redacted_grievance, redaction_map = pii_redactor.redact(grievance)
+        
         session_id = WorkflowState.create_session(grievance)
         trace = AgentTrace()
         
-        # Store domain in session for continuation endpoints
-        WorkflowState.update_session(session_id, {
-            "domain": self.domain
-        })
+        trace.add(
+            "pii_redactor",
+            "redaction_complete",
+            f"Redacted {len(redaction_map)} PII items before sending to agents"
+        )
         
         # Context Gathering
-        rag_context = await self._gather_context(grievance, trace)
+        rag_context = await self._gather_context(redacted_grievance, trace)
         
         # Research Phase
         trace.add(
             "researcher",
             "analyzing_grievance",
-            f"Scanning Indian legal statutes for provisions relevant to: '{grievance[:100]}...'"
+            f"Scanning Indian legal statutes for provisions relevant to: '{redacted_grievance[:100]}...'"
         )
         
-        research_findings = await self.researcher.analyze(grievance, rag_context)
+        research_findings = await self.researcher.analyze(redacted_grievance, rag_context)
         
         trace.add(
             "researcher",
@@ -205,12 +209,14 @@ class LegalAidOrchestrator:
             f"Awaiting human review and approval."
         )
         
-        # Save state
+        # Save state with redaction map
         WorkflowState.update_session(session_id, {
             "stage": "awaiting_research_approval",
             "research_findings": research_findings,
             "rag_context": rag_context,
-            "agent_traces": trace.to_dict()
+            "agent_traces": trace.to_dict(),
+            "redaction_map": redaction_map,
+            "redacted_grievance": redacted_grievance
         })
         
         return {
@@ -218,7 +224,7 @@ class LegalAidOrchestrator:
             "stage": "awaiting_research_approval",
             "research_findings": research_findings,
             "agent_traces": trace.to_dict(),
-            "is_approved": None,
+            "pii_redacted": len(redaction_map) > 0,
             "message": "Please review and approve the research findings to continue."
         }
     
@@ -240,6 +246,7 @@ class LegalAidOrchestrator:
             raise ValueError(f"Invalid stage: {session['stage']}")
         
         grievance = session["grievance"]
+        redacted_grievance = session.get("redacted_grievance", grievance)
         trace = AgentTrace()
         trace.traces = session.get("agent_traces", [])
         
@@ -256,7 +263,7 @@ class LegalAidOrchestrator:
             f"Incorporating legal provisions into formal petition structure."
         )
         
-        draft = await self.drafter.draft(grievance, approved_research, "")
+        draft = await self.drafter.draft(redacted_grievance, approved_research, "")
         
         trace.add(
             "drafter",
@@ -305,6 +312,7 @@ class LegalAidOrchestrator:
             raise ValueError(f"Invalid stage: {session['stage']}")
         
         grievance = session["grievance"]
+        redacted_grievance = session.get("redacted_grievance", grievance)
         approved_research = session["approved_research"]
         iteration = session.get("iteration", 1) + 1
         
@@ -340,7 +348,7 @@ class LegalAidOrchestrator:
             f"Addressing human feedback."
         )
         
-        draft = await self.drafter.draft(grievance, approved_research, human_feedback)
+        draft = await self.drafter.draft(redacted_grievance, approved_research, human_feedback)
         
         trace.add(
             "drafter",
@@ -406,8 +414,19 @@ class LegalAidOrchestrator:
             "agent_traces": trace.to_dict()
         })
         
+        # Restore PII in final document
+        final_draft = session["current_draft"]
+        redaction_map = session.get("redaction_map", {})
+        if redaction_map:
+            final_draft = pii_redactor.restore(final_draft, redaction_map)
+            trace.add(
+                "pii_redactor",
+                "restoration_complete",
+                f"Restored {len(redaction_map)} PII items in final document"
+            )
+        
         result = {
-            "final_document": session["current_draft"],
+            "final_document": final_draft,
             "research_findings": session["approved_research"],
             "review_result": {
                 "is_approved": True,
