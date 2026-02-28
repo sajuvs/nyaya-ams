@@ -8,6 +8,7 @@ from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,8 @@ Provide your audit results in JSON format.""")
         ])
         
         self.chain = self.prompt | self.llm | self.parser
-        
+    
+    @traceable(name="expert_legal_review")
     async def review(self, draft: str, research_findings: Dict[str, Any]) -> Dict[str, Any]:
         """
         Review a legal draft for compliance and accuracy.

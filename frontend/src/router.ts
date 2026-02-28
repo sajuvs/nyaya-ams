@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter } from '@tanstack/react-rout
 import App from './App'
 import AgentPage from './routes/index'
 import PromptsPage from './routes/prompts'
+import TranscriptPage from './routes/transcript'
 
 const rootRoute = createRootRoute({ component: App })
 
@@ -17,7 +18,13 @@ const promptsRoute = createRoute({
   component: PromptsPage,
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, promptsRoute])
+const transcriptRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/transcript',
+  component: TranscriptPage,
+})
+
+const routeTree = rootRoute.addChildren([indexRoute, promptsRoute, transcriptRoute])
 
 export const router = createRouter({ routeTree })
 

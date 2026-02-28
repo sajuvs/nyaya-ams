@@ -1,6 +1,6 @@
 """API v1 Endpoints for Legal Aid Generation."""
 import logging
-from typing import Dict
+from typing import Dict, List
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
@@ -14,6 +14,8 @@ from ...models.schemas import (
 )
 from ...services.orchestrator import LegalAidOrchestrator
 from ...services.workflow_state import WorkflowState
+from ...services.transcription_state import TranscriptionState
+from ...services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +94,26 @@ async def health_check():
     "/start-legal-aid",
     status_code=status.HTTP_200_OK,
     summary="Start Legal Aid Workflow",
-    description="Start workflow and return research findings for human review"
+    description="Start workflow and return research findings for human review. Automatically translates regional language input to English."
 )
 async def start_legal_aid(request: LegalAidRequest) -> Dict:
-    """Start workflow with research phase. If is_approved=False, re-runs research."""
+    """Start workflow with research phase. Translates input if needed."""
     try:
         logger.info(f"Starting HITL workflow: {request.grievance[:100]}...")
+        
+        # Translate if needed
+        translation_service = TranslationService()
+        translated_text, was_translated = await translation_service.detect_and_translate(request.grievance)
+        
+        if was_translated:
+            logger.info("Input was translated from regional language to English")
+        
         orchestrator = LegalAidOrchestrator()
-        result = await orchestrator.start_research(request.grievance)
+        result = await orchestrator.start_research(translated_text)
         result["is_approved"] = request.is_approved
+        result["was_translated"] = was_translated
+        result["original_text"] = request.grievance if was_translated else None
+        
         logger.info(f"Research complete. Session: {result['session_id']}")
         return result
     except Exception as e:
@@ -245,3 +258,56 @@ async def get_workflow_status(session_id: str) -> WorkflowStatusResponse:
         message=f"Workflow is at stage: {session['stage']}",
         data={"created_at": session["created_at"], "updated_at": session["updated_at"]}
     )
+
+
+# ===== TRANSCRIPTION ENDPOINTS (Polling Fallback) =====
+
+@router.get(
+    "/transcriptions",
+    status_code=status.HTTP_200_OK,
+    tags=["transcription"],
+    summary="Get Recent Transcriptions",
+    description="Polling endpoint for transcriptions (WebSocket fallback)"
+)
+async def get_transcriptions() -> Dict[str, List[Dict]]:
+    """
+    Get recent transcriptions as polling fallback for WebSocket.
+    
+    Returns:
+        Dictionary with list of recent transcriptions
+    """
+    transcriptions = TranscriptionState.get_recent_transcriptions()
+    return {
+        "transcriptions": transcriptions,
+        "count": len(transcriptions)
+    }
+
+
+@router.delete(
+    "/transcriptions",
+    status_code=status.HTTP_200_OK,
+    tags=["transcription"],
+    summary="Clear Transcriptions",
+    description="Clear the transcription queue"
+)
+async def clear_transcriptions() -> Dict[str, str]:
+    """Clear all transcriptions from the queue."""
+    TranscriptionState.clear_transcriptions()
+    return {"status": "cleared", "message": "Transcription queue cleared"}
+
+
+@router.get(
+    "/transcription-stats",
+    status_code=status.HTTP_200_OK,
+    tags=["transcription"],
+    summary="Get Transcription Statistics",
+    description="Get current transcription service statistics"
+)
+async def get_transcription_stats() -> Dict:
+    """
+    Get transcription service statistics.
+    
+    Returns:
+        Dictionary with service statistics
+    """
+    return TranscriptionState.get_stats()

@@ -8,7 +8,6 @@ import { AGENTS, type AgentStep } from '../utils/dummyData'
 import AgentPipeline from '../components/AgentPipeline'
 import AgentDetailPanel from '../components/AgentDetailPanel'
 import MarkdownOutput from '../components/MarkdownOutput'
-import FileUpload from '../components/FileUpload'
 
 type Phase = 'input' | 'processing' | 'done'
 
@@ -21,6 +20,7 @@ export default function AgentPage() {
   const [output, setOutput] = useState('')
   const [agentOutputs, setAgentOutputs] = useState<Record<string, ResearchFindings | string>>({})
   const [detailAgent, setDetailAgent] = useState<string | null>(null)
+  const [translationNotice, setTranslationNotice] = useState<string | null>(null)
 
   const phaseRef = useRef<Phase>('input')
   const canViewResults = useRef(false)
@@ -130,6 +130,7 @@ export default function AgentPage() {
       status: i === 0 ? 'running' as const : 'pending' as const
     }))
     setSteps(initialSteps)
+    setTranslationNotice(null)
     scrollTo(sec2Ref.current, 400)
 
     try {
@@ -164,6 +165,11 @@ export default function AgentPage() {
             }))
           }
           return approved
+        },
+        (wasTranslated, originalText) => {
+          if (wasTranslated) {
+            setTranslationNotice(`Translated from regional language: "${originalText?.substring(0, 100)}..."`)
+          }
         }
       )
       setOutput(result)
@@ -301,6 +307,11 @@ export default function AgentPage() {
               <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-2">Processing</p>
               <h2 className="text-3xl font-bold text-[#e0e0ff]">Agent Pipeline</h2>
               <p className="text-base text-[#4a4a6a] mt-1">Sequential analysis in progress</p>
+              {translationNotice && (
+                <div className="mt-3 px-4 py-2 bg-[#00f5ff11] border border-[#00f5ff44] rounded-lg">
+                  <p className="text-sm text-[#00f5ff]">✓ {translationNotice}</p>
+                </div>
+              )}
             </div>
             <AgentPipeline
               steps={steps}

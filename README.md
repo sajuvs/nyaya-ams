@@ -1,8 +1,19 @@
 # Nyaya-Flow: Agentic Legal Aid Platform
 
-Multi-agent AI system for generating legal aid documents for Indian citizens, with focus on Kerala jurisdiction.
+Multi-agent AI system for generating legal aid documents for Indian citizens, with focus on Kerala jurisdiction. Now includes real-time audio transcription support.
+
+## Features
+
+- 🤖 **Multi-Agent Legal Aid**: Three specialized AI agents for legal document generation
+- 🎤 **Real-Time Transcription**: Live audio transcription using Sarvam AI
+- 📚 **RAG-Powered Research**: Search local legal documents and web resources
+- 🔄 **Self-Correction Loop**: Automatic draft refinement based on expert feedback
+- 🌐 **WebSocket Support**: Real-time communication for transcription
+- 📝 **Human-in-the-Loop**: Review and approve at each workflow stage
 
 ## Architecture
+
+### Legal Aid Agents
 
 Three specialized AI agents working in collaboration:
 
@@ -12,23 +23,40 @@ Three specialized AI agents working in collaboration:
 
 **Self-Correction Loop:** Rejected drafts are automatically refined based on expert feedback (max 3 iterations).
 
+### Transcription Service
+
+Real-time audio transcription powered by Sarvam AI:
+- WebSocket-based live transcription
+- REST API polling fallback
+- Automatic chunk deduplication
+- Multi-client support
+
 ## Quick Start
 
 ```bash
 # 1. Configure environment
 cp .env.example .env
-# Add your OPENAI_API_KEY to .env
+# Add your API keys to .env:
+# - OPENAI_API_KEY (for legal agents)
+# - GROQ_API_KEY (for RAG search)
+# - SARVAM_API_KEY (for transcription)
 
-# 2. Start with Docker
-docker-compose up --build
+# 2. Install dependencies
+pip install -r requirements.txt
 
-# 3. Access API
+# 3. Start server (with transcription support)
+cd backend
+uvicorn app.main:socket_app --reload --host 0.0.0.0 --port 8000
+
+# 4. Access API
 # - API: http://localhost:8000
 # - Docs: http://localhost:8000/docs
-# - Health: http://localhost:8000/api/v1/health
+# - Health: http://localhost:8000/health
 ```
 
 ## API Usage
+
+### Legal Aid Generation
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/generate-legal-aid" \
@@ -39,26 +67,61 @@ curl -X POST "http://localhost:8000/api/v1/generate-legal-aid" \
   }'
 ```
 
+### Audio Transcription
+
+**WebSocket (Recommended):**
+```javascript
+import io from 'socket.io-client';
+
+const socket = io('http://localhost:8000', {
+  path: '/socket.io'
+});
+
+socket.emit('audio_chunk', {
+  audio: base64AudioData,
+  timestamp: Date.now() / 1000,
+  chunkName: 'chunk_001'
+});
+
+socket.on('transcription_result', (data) => {
+  console.log('Transcription:', data.text);
+});
+```
+
+**REST API (Polling Fallback):**
+```bash
+curl http://localhost:8000/api/v1/transcriptions
+```
+
+See [TRANSCRIPTION_API.md](backend/TRANSCRIPTION_API.md) for complete documentation.
+
 ## Project Structure
 
 ```
 backend/
 ├── app/
-│   ├── main.py              # FastAPI application
+│   ├── main.py              # FastAPI + SocketIO application
 │   ├── agents/              # Three AI agents
 │   │   ├── researcher.py
 │   │   ├── drafter.py
 │   │   └── expert_reviewer.py
 │   ├── services/
-│   │   └── orchestrator.py  # Multi-agent workflow
+│   │   ├── orchestrator.py        # Multi-agent workflow
+│   │   ├── transcription_service.py  # Audio transcription
+│   │   └── transcription_state.py    # State management
+│   ├── sockets/
+│   │   └── transcription_handlers.py # WebSocket handlers
+│   ├── config/
+│   │   └── transcription_config.py   # Transcription settings
 │   ├── api/v1/
 │   │   └── endpoints.py     # REST API
 │   ├── models/
 │   │   └── schemas.py       # Pydantic models
 │   └── tests/
-│       └── test_orchestrator.py
 ├── src/                     # RAG components
-└── docustore/              # Legal documents
+├── docustore/              # Legal documents
+├── TRANSCRIPTION_API.md    # Transcription API docs
+└── TRANSCRIPTION_QUICKSTART.md  # Quick start guide
 ```
 
 ## Testing
@@ -118,8 +181,15 @@ The API returns complete agent traces for visualization:
 ```bash
 OPENAI_API_KEY=your_openai_api_key_here  # Required for agents
 GROQ_API_KEY=your_groq_api_key_here      # Required for RAG
+SARVAM_API_KEY=your_sarvam_api_key_here  # Required for transcription
 HF_TOKEN=your_hf_token_here              # Optional
 ```
+
+## Documentation
+
+- [Transcription API Documentation](backend/TRANSCRIPTION_API.md) - Complete WebSocket and REST API reference
+- [Transcription Quick Start](backend/TRANSCRIPTION_QUICKSTART.md) - Get started with audio transcription
+- [API Documentation](http://localhost:8000/docs) - Interactive API docs (when server is running)
 Nyaya-Ams - Agentic Legal Aid Platform
 
 ## Overview
