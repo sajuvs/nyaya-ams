@@ -1,7 +1,7 @@
 """API v1 Endpoints for Legal Aid Generation."""
 import logging
 from typing import Dict
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from ...models.schemas import (
@@ -290,3 +290,48 @@ async def get_workflow_status(session_id: str) -> WorkflowStatusResponse:
         message=f"Workflow is at stage: {session['stage']}",
         data={"created_at": session["created_at"], "updated_at": session["updated_at"]}
     )
+
+
+# ===== LAWYERS DIRECTORY ENDPOINTS =====
+# Isolated lawyers module — uses SQLite, no AI agent dependency
+
+from lawyers.database import init_db as _init_lawyers_db, get_all_lawyers, get_lawyer_by_id
+
+# Initialize lawyers DB + seed demo data on startup
+_init_lawyers_db()
+
+
+@router.get(
+    "/lawyers",
+    status_code=status.HTTP_200_OK,
+    summary="List Lawyers",
+    description="Get all lawyers with optional specialization, location, and distance filters",
+    tags=["lawyers"],
+)
+def list_lawyers(
+    specialization: str | None = Query(None, description="Filter by specialization (partial match)"),
+    location: str | None = Query(None, description="Filter by location (partial match)"),
+    max_distance_km: int | None = Query(None, description="Max distance in km (1-200)"),
+):
+    """Return filtered list of lawyers from SQLite DB."""
+    return get_all_lawyers(
+        specialization=specialization,
+        location=location,
+        max_distance_km=max_distance_km,
+    )
+
+
+@router.get(
+    "/lawyers/{lawyer_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Get Lawyer by ID",
+    description="Get a single lawyer's details by their ID",
+    tags=["lawyers"],
+)
+def get_lawyer(lawyer_id: int):
+    """Return a single lawyer or 404."""
+    lawyer = get_lawyer_by_id(lawyer_id)
+    if not lawyer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lawyer not found")
+    return lawyer
+
