@@ -14,6 +14,7 @@ from ...models.schemas import (
 )
 from ...services.orchestrator import LegalAidOrchestrator
 from ...services.workflow_state import WorkflowState
+from config.domain_loader import DomainLoader
 
 logger = logging.getLogger(__name__)
 
@@ -51,19 +52,49 @@ async def generate_legal_aid(request: LegalAidRequest) -> LegalAidResponse:
         HTTPException: If the generation process fails
     """
     try:
-        logger.info(f"Received legal aid request: {request.grievance[:100]}...")
+        logger.info(f"Received request for domain '{request.domain}': {request.grievance[:100]}...")
         
-        orchestrator = LegalAidOrchestrator()
+        orchestrator = LegalAidOrchestrator(domain=request.domain)
         result = await orchestrator.generate_legal_aid(grievance=request.grievance)
         
-        logger.info(f"Legal aid generation complete. Status: {result['status']}")
+        logger.info(f"Generation complete. Status: {result['status']}")
         return LegalAidResponse(**result)
         
+    except FileNotFoundError as e:
+        logger.error(f"Domain not found: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Error generating legal aid: {str(e)}", exc_info=True)
+        logger.error(f"Error generating document: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate legal aid: {str(e)}"
+            detail=f"Failed to generate document: {str(e)}"
+        )
+
+
+@router.get(
+    "/domains",
+    status_code=status.HTTP_200_OK,
+    summary="List Available Domains",
+    description="Get list of all available domain configurations"
+)
+async def list_domains():
+    """List all available domains."""
+    try:
+        domains = DomainLoader.list_available_domains()
+        return JSONResponse(
+            content={
+                "domains": domains,
+                "total": len(domains)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error listing domains: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list domains: {str(e)}"
         )
 
 
@@ -97,14 +128,20 @@ async def health_check():
 async def start_legal_aid(request: LegalAidRequest) -> Dict:
     """Start workflow with research phase."""
     try:
-        logger.info(f"Starting HITL workflow: {request.grievance[:100]}...")
+        logger.info(f"Starting HITL workflow for domain '{request.domain}': {request.grievance[:100]}...")
         
-        orchestrator = LegalAidOrchestrator()
+        orchestrator = LegalAidOrchestrator(domain=request.domain)
         result = await orchestrator.start_research(request.grievance)
         
         logger.info(f"Research complete. Session: {result['session_id']}")
         return result
         
+    except FileNotFoundError as e:
+        logger.error(f"Domain not found: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
         logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -124,7 +161,13 @@ async def approve_research(request: ResearchApprovalRequest) -> Dict:
     try:
         logger.info(f"Research approved for session: {request.session_id}")
         
-        orchestrator = LegalAidOrchestrator()
+        # Get session to retrieve domain
+        session = WorkflowState.get_session(request.session_id)
+        if not session:
+            raise ValueError(f"Session {request.session_id} not found")
+        
+        domain = session.get("domain", "legal_ai")
+        orchestrator = LegalAidOrchestrator(domain=domain)
         result = await orchestrator.continue_with_draft(
             request.session_id,
             request.approved_research
@@ -157,7 +200,13 @@ async def review_draft(request: DraftReviewRequest) -> Dict:
     try:
         logger.info(f"Draft feedback received for session: {request.session_id}")
         
-        orchestrator = LegalAidOrchestrator()
+        # Get session to retrieve domain
+        session = WorkflowState.get_session(request.session_id)
+        if not session:
+            raise ValueError(f"Session {request.session_id} not found")
+        
+        domain = session.get("domain", "legal_ai")
+        orchestrator = LegalAidOrchestrator(domain=domain)
         result = await orchestrator.refine_draft(
             request.session_id,
             request.feedback
@@ -191,7 +240,13 @@ async def finalize_legal_aid(request: FinalizeRequest) -> LegalAidResponse:
     try:
         logger.info(f"Finalizing workflow for session: {request.session_id}")
         
-        orchestrator = LegalAidOrchestrator()
+        # Get session to retrieve domain
+        session = WorkflowState.get_session(request.session_id)
+        if not session:
+            raise ValueError(f"Session {request.session_id} not found")
+        
+        domain = session.get("domain", "legal_ai")
+        orchestrator = LegalAidOrchestrator(domain=domain)
         result = await orchestrator.finalize_workflow(request.session_id)
         
         logger.info(f"Workflow finalized for session: {request.session_id}")

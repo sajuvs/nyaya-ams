@@ -13,6 +13,10 @@ class LegalAidRequest(BaseModel):
         description="User's plain-text description of their legal issue",
         min_length=10
     )
+    domain: str = Field(
+        default="legal_ai",
+        description="Domain to use (legal_ai, product_comparison, etc.)"
+    )
     rag_context: Optional[str] = Field(
         default="",
         description="Additional legal context from vector store (optional)"
@@ -22,6 +26,7 @@ class LegalAidRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "grievance": "I purchased a defective mobile phone from a shop in Kochi. The seller refuses to provide a refund or replacement despite the phone not working within the warranty period.",
+                "domain": "legal_ai",
                 "rag_context": ""
             }
         }

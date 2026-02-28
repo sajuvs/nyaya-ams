@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useGSAP } from '@gsap/react'
-import { runAgent } from '../api/agent'
+import { runAgent, listDomains, type Domain } from '../api/agent'
 import { AGENTS, type AgentStep } from '../utils/dummyData'
 import AgentPipeline from '../components/AgentPipeline'
 import MarkdownOutput from '../components/MarkdownOutput'
@@ -16,6 +16,8 @@ export default function AgentPage() {
   const [files, setFiles] = useState<File[]>([])
   const [steps, setSteps] = useState<AgentStep[]>([])
   const [output, setOutput] = useState('')
+  const [domains, setDomains] = useState<Domain[]>([])
+  const [selectedDomain, setSelectedDomain] = useState<string>('legal_ai')
 
   const phaseRef = useRef<Phase>('input')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -26,6 +28,13 @@ export default function AgentPage() {
 
   // Keep phaseRef in sync for use inside event listeners
   useEffect(() => { phaseRef.current = phase }, [phase])
+
+  // Load available domains on mount
+  useEffect(() => {
+    listDomains()
+      .then((response) => setDomains(response.domains))
+      .catch((error) => console.error('Failed to load domains:', error))
+  }, [])
 
   // Block scroll forward when phase hasn't unlocked the next section
   useEffect(() => {
@@ -125,7 +134,7 @@ export default function AgentPage() {
         if (next) return updated.map((s) => s.agentId === next.id ? { ...s, status: 'running' as const } : s)
         return updated
       })
-    })
+    }, selectedDomain)
 
     setOutput(result)
     setPhase('done')
@@ -137,6 +146,7 @@ export default function AgentPage() {
     setFiles([])
     setSteps([])
     setOutput('')
+    setSelectedDomain('legal_ai')
     gsap.set(sec2Ref.current, { scale: 0.82, opacity: 0, filter: 'blur(20px)' })
     gsap.set(sec3Ref.current, { scale: 0.82, opacity: 0, filter: 'blur(20px)' })
     gsap.set(sec1Ref.current, { yPercent: 0, scale: 1, opacity: 1 })
@@ -170,15 +180,41 @@ export default function AgentPage() {
         ))}
         <div className="relative z-10 w-full max-w-xl px-6">
           <div className="mb-8 text-center">
-            <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-3">AI Legal Assessment</p>
-            <h1 className="text-4xl font-bold text-[#e0e0ff] leading-tight mb-2">Know your rights.</h1>
+            <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-3">AI Multi-Domain Assistant</p>
+            <h1 className="text-4xl font-bold text-[#e0e0ff] leading-tight mb-2">Know your options.</h1>
             <p className="text-lg text-[#00f5ff] neon-cyan font-medium">Describe your situation.</p>
           </div>
           <div className="border border-[#1a1a2e] glow-border-cyan rounded-2xl p-6 bg-[#0f0f1a]">
+            {/* Domain Selector */}
+            {domains.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-xs tracking-wider uppercase text-[#4a4a6a] mb-2">
+                  Select Domain
+                </label>
+                <select
+                  value={selectedDomain}
+                  onChange={(e) => setSelectedDomain(e.target.value)}
+                  className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-xl p-3 text-sm text-[#e0e0ff] outline-none focus:border-[#00f5ff44] transition-colors duration-300 cursor-pointer"
+                >
+                  {domains.map((domain) => (
+                    <option key={domain.domain_name} value={domain.domain_name}>
+                      {domain.display_name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-[#4a4a6a] mt-2">
+                  {domains.find(d => d.domain_name === selectedDomain)?.description}
+                </p>
+              </div>
+            )}
             <textarea
               value={complaint}
               onChange={(e) => setComplaint(e.target.value)}
-              placeholder="e.g. I paid ₹50,000 to a contractor for home renovation. He took the money but never started work and is now unreachable..."
+              placeholder={
+                selectedDomain === 'product_comparison'
+                  ? "e.g. Should I buy iPhone 15 Pro or Samsung S24 Ultra? I need good camera and battery life.\n\nOr paste product URLs:\nhttps://www.apple.com/iphone-15-pro/\nhttps://www.samsung.com/galaxy-s24-ultra/"
+                  : "e.g. I paid ₹50,000 to a contractor for home renovation. He took the money but never started work and is now unreachable..."
+              }
               rows={6}
               className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-xl p-4 text-sm text-[#e0e0ff] placeholder-[#2a2a4a] resize-none outline-none focus:border-[#00f5ff44] transition-colors duration-300"
             />

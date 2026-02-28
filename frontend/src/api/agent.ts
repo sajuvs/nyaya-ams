@@ -8,6 +8,12 @@ console.log('API_BASE_URL:', API_BASE_URL)
 console.log('import.meta.env.VITE_API_URL:', import.meta.env.VITE_API_URL)
 
 // Type definitions matching backend schemas
+export interface Domain {
+  domain_name: string
+  display_name: string
+  description: string
+}
+
 export interface ResearchFindings {
   summary_of_facts: string[]
   legal_provisions: string[]
@@ -101,12 +107,18 @@ export async function checkHealth(): Promise<{ status: string; service: string; 
   return handleResponse(response)
 }
 
+// List Available Domains
+export async function listDomains(): Promise<{ domains: Domain[]; total: number }> {
+  const response = await fetch(`${API_BASE_URL}/domains`)
+  return handleResponse(response)
+}
+
 // Start Legal Aid Workflow
-export async function startLegalAid(grievance: string): Promise<StartWorkflowResponse> {
+export async function startLegalAid(grievance: string, domain: string = 'legal_ai'): Promise<StartWorkflowResponse> {
   const response = await fetch(`${API_BASE_URL}/start-legal-aid`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grievance })
+    body: JSON.stringify({ grievance, domain })
   })
   return handleResponse(response)
 }
@@ -164,12 +176,13 @@ export async function getWorkflowStatus(sessionId: string): Promise<WorkflowStat
 export async function runAgent(
   complaint: string,
   _files: File[],
-  onStepComplete: (agentId: string) => void
+  onStepComplete: (agentId: string) => void,
+  domain: string = 'legal_ai'
 ): Promise<string> {
   try {
     // Step 1: Start workflow (Research phase)
     onStepComplete('intake')
-    const startResponse = await startLegalAid(complaint)
+    const startResponse = await startLegalAid(complaint, domain)
     
     onStepComplete('legal-researcher')
     
