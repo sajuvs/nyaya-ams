@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useGSAP } from '@gsap/react'
@@ -23,6 +23,8 @@ export default function AgentPage() {
   const sec2Ref = useRef<HTMLDivElement>(null)
   const sec3Ref = useRef<HTMLDivElement>(null)
   const glitchRef = useRef<HTMLDivElement>(null)
+  // Holds resolve functions for HITL pauses keyed by agentId
+  const hitlResolvers = useRef<Record<string, (approved: boolean) => void>>({})
 
   // Keep phaseRef in sync for use inside event listeners
   useEffect(() => { phaseRef.current = phase }, [phase])
@@ -102,6 +104,64 @@ export default function AgentPage() {
     return () => ScrollTrigger.getAll().forEach((t) => t.kill())
   }, { scope: containerRef })
 
+  const waitForApproval = useCallback((agentId: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      hitlResolvers.current[agentId] = resolve
+    })
+  }, [])
+
+  const handleApprove = (agentId: string) => {
+    hitlResolvers.current[agentId]?.(true)
+    delete hitlResolvers.current[agentId]
+  }
+
+  const handleReject = (agentId: string) => {
+    hitlResolvers.current[agentId]?.(false)
+    delete hitlResolvers.current[agentId]
+  }
+
+  const runPipeline = useCallback(async (complaintText: string, attachedFiles: File[]) => {
+    const initialSteps: AgentStep[] = AGENTS.map((a, i) => ({
+      agentId: a.id,
+      status: i === 0 ? 'running' as const : 'pending' as const
+    }))
+    setSteps(initialSteps)
+    scrollTo(sec2Ref.current, 400)
+
+    const result = await runAgent(
+      complaintText,
+      attachedFiles,
+      (agentId) => {
+        setSteps((prev) => {
+          const updated = prev.map((s) => s.agentId === agentId ? { ...s, status: 'done' as const } : s)
+          const next = AGENTS[AGENTS.findIndex((a) => a.id === agentId) + 1]
+          if (next) return updated.map((s) => s.agentId === next.id ? { ...s, status: 'running' as const } : s)
+          return updated
+        })
+      },
+      async (agentId) => {
+        // Pause and show HITL UI
+        setSteps((prev) => prev.map((s) => s.agentId === agentId ? { ...s, status: 'awaiting-approval' as const } : s))
+        const approved = await waitForApproval(agentId)
+        if (!approved) {
+          // Re-run: reset this agent and all subsequent to pending, then re-run
+          setSteps((prev) => prev.map((s) => {
+            const idx = AGENTS.findIndex((a) => a.id === s.agentId)
+            const thisIdx = AGENTS.findIndex((a) => a.id === agentId)
+            return idx >= thisIdx ? { ...s, status: 'pending' as const } : s
+          }))
+          // Small delay so user sees the reset
+          await new Promise((r) => setTimeout(r, 600))
+          setSteps((prev) => prev.map((s) => s.agentId === agentId ? { ...s, status: 'running' as const } : s))
+        }
+        return approved
+      }
+    )
+
+    setOutput(result)
+    setPhase('done')
+  }, [waitForApproval])
+
   const handleSubmit = async () => {
     if (!complaint.trim()) return
 
@@ -114,21 +174,7 @@ export default function AgentPage() {
     }
 
     setPhase('processing')
-    const initialSteps: AgentStep[] = AGENTS.map((a) => ({ agentId: a.id, status: 'pending' }))
-    setSteps(initialSteps)
-    scrollTo(sec2Ref.current, 400)
-
-    const result = await runAgent(complaint, files, (agentId) => {
-      setSteps((prev) => {
-        const updated = prev.map((s) => s.agentId === agentId ? { ...s, status: 'done' as const } : s)
-        const next = AGENTS[AGENTS.findIndex((a) => a.id === agentId) + 1]
-        if (next) return updated.map((s) => s.agentId === next.id ? { ...s, status: 'running' as const } : s)
-        return updated
-      })
-    })
-
-    setOutput(result)
-    setPhase('done')
+    await runPipeline(complaint, files)
   }
 
   const handleReset = () => {
@@ -144,10 +190,7 @@ export default function AgentPage() {
     scrollTo(sec1Ref.current)
   }
 
-  const displaySteps = steps.map((s, i) =>
-    i === 0 && s.status === 'pending' && phase === 'processing'
-      ? { ...s, status: 'running' as const } : s
-  )
+  const displaySteps = steps
 
   return (
     <div ref={containerRef} className="relative" style={{ height: '300vh' }}>
@@ -168,21 +211,21 @@ export default function AgentPage() {
             opacity: 0.03,
           }} />
         ))}
-        <div className="relative z-10 w-full max-w-xl px-6">
-          <div className="mb-8 text-center">
+        <div className="relative z-10 w-full max-w-2xl px-6 flex flex-col items-center">
+          <div className="mb-8 text-center w-full">
             <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-3">AI Legal Assessment</p>
             <h1 className="text-4xl font-bold text-[#e0e0ff] leading-tight mb-2">Know your rights.</h1>
             <p className="text-lg text-[#00f5ff] neon-cyan font-medium">Describe your situation.</p>
           </div>
-          <div className="border border-[#1a1a2e] glow-border-cyan rounded-2xl p-6 bg-[#0f0f1a]">
+          <div className="border border-[#1a1a2e] glow-border-cyan rounded-2xl p-6 bg-[#0f0f1a] w-full">
             <textarea
               value={complaint}
               onChange={(e) => setComplaint(e.target.value)}
               placeholder="e.g. I paid ₹50,000 to a contractor for home renovation. He took the money but never started work and is now unreachable..."
-              rows={6}
+              rows={9}
               className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-xl p-4 text-sm text-[#e0e0ff] placeholder-[#2a2a4a] resize-none outline-none focus:border-[#00f5ff44] transition-colors duration-300"
             />
-            <div className="mt-3"><FileUpload onFilesChange={setFiles} /></div>
+
             <button
               onClick={handleSubmit}
               disabled={!complaint.trim()}
@@ -208,7 +251,7 @@ export default function AgentPage() {
             <h2 className="text-2xl font-bold text-[#e0e0ff]">Agent Pipeline</h2>
             <p className="text-sm text-[#4a4a6a] mt-1">Sequential analysis in progress</p>
           </div>
-          <AgentPipeline steps={displaySteps} />
+          <AgentPipeline steps={displaySteps} onApprove={handleApprove} onReject={handleReject} />
           {phase === 'done' && (
             <button
               onClick={() => scrollTo(sec3Ref.current, 600)}
