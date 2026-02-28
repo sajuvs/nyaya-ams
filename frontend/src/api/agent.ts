@@ -31,6 +31,8 @@ export interface StartWorkflowResponse {
   research_findings: ResearchFindings
   agent_traces: AgentTrace[]
   message: string
+  was_translated?: boolean
+  original_text?: string
 }
 
 export interface ApproveResearchResponse {
@@ -176,13 +178,18 @@ export async function runAgent(
   _files: File[],
   onStepComplete: (agentId: string) => void,
   onAwaitApproval?: (agentId: string, output: ResearchFindings | string) => Promise<boolean>,
-  domain: string = 'legal_ai',
-  onSetRunning?: (agentId: string) => void
+  onTranslation?: (wasTranslated: boolean, originalText?: string) => void
 ): Promise<string> {
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const startResponse = await startLegalAid(complaint, domain)
+      // Step 1: Legal Researcher (with automatic translation)
+      const startResponse = await startLegalAid(complaint)
+      
+      // Notify if translation occurred
+      if (onTranslation && startResponse.was_translated) {
+        onTranslation(startResponse.was_translated, startResponse.original_text)
+      }
 
       // HITL: pause for legal-researcher approval
       if (onAwaitApproval) {

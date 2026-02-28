@@ -8,6 +8,7 @@ from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,8 @@ class ResearcherAgent:
         ])
         
         self.chain = self.prompt | self.llm | self.parser
-        
+    
+    @traceable(name="legal_research_analysis")
     async def analyze(self, grievance: str, rag_context: str = "") -> Dict[str, Any]:
         """
         Analyze a user query and provide research findings.

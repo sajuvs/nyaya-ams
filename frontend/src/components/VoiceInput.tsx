@@ -1,5 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import gsap from 'gsap'
+import { io, Socket } from 'socket.io-client'
+import {
+  resampleAudio,
+  encodeWAV,
+  arrayBufferToBase64,
+  calculateAudioEnergy,
+} from '../utils/audioUtils'
 
 type RecordState = 'idle' | 'recording' | 'transcribing'
 
@@ -8,10 +15,11 @@ interface Props {
   transcript: string
 }
 
-async function transcribeAudio(_blob: Blob): Promise<string> {
-  // TODO: integrate transcription service here
-  await new Promise((r) => setTimeout(r, 1500))
-  return ''
+interface TranscriptionResult {
+  text: string
+  timestamp: number
+  chunkName: string
+  status: string
 }
 
 const BARS = 48
@@ -20,8 +28,21 @@ const OUTER_MAX = 36
 
 export default function VoiceInput({ onTranscript, transcript }: Props) {
   const [state, setState] = useState<RecordState>('idle')
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
+  const [isConnected, setIsConnected] = useState(false)
+  
+  // Refs for WebSocket transcription
+  const socketRef = useRef<Socket | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const processorRef = useRef<ScriptProcessorNode | null>(null)
+  const audioChunksRef = useRef<Int16Array[]>([])
+  const lastChunkTimeRef = useRef<number>(0)
+  const recordingStartTimeRef = useRef<number>(0)
+  const chunkCounterRef = useRef<number>(0)
+  const isRecordingRef = useRef<boolean>(false)
+  const accumulatedTranscriptRef = useRef<string>('')
+  
+  // Refs for visualization
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animFrameRef = useRef<number>(0)
@@ -31,6 +52,46 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
 
   const isRecording = state === 'recording'
   const isTranscribing = state === 'transcribing'
+
+  // Initialize WebSocket connection
+  useEffect(() => {
+    const socket = io('http://localhost:8000', {
+      path: '/socket.io',
+      transports: ['websocket'],
+    })
+
+    socket.on('connect', () => {
+      console.log('✅ Connected to transcription service')
+      setIsConnected(true)
+    })
+
+    socket.on('disconnect', () => {
+      console.log('❌ Disconnected from server')
+      setIsConnected(false)
+    })
+
+    socket.on('transcription_result', (data: TranscriptionResult) => {
+      console.log('📥 Received transcription:', data)
+      if (data && data.text && data.text.trim()) {
+        // Accumulate transcriptions with space separator
+        const newText = data.text.trim()
+        accumulatedTranscriptRef.current = accumulatedTranscriptRef.current 
+          ? `${accumulatedTranscriptRef.current} ${newText}`
+          : newText
+        onTranscript(accumulatedTranscriptRef.current)
+      }
+    })
+
+    socket.on('error', (error: { message: string }) => {
+      console.error('❌ Socket error:', error)
+    })
+
+    socketRef.current = socket
+
+    return () => {
+      socket.disconnect()
+    }
+  }, [onTranscript])
 
   useEffect(() => {
     if (transcriptBoxRef.current) {
@@ -134,48 +195,171 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
     }
   }, [state, drawIdle])
 
+  // Send audio chunk to backend
+  const sendAudioChunk = useCallback((audioChunks: Int16Array[], timestamp: number) => {
+    if (audioChunks.length === 0 || !socketRef.current) return
+
+    // Combine all chunks
+    const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0)
+    const combinedBuffer = new Int16Array(totalLength)
+    let offset = 0
+
+    for (const chunk of audioChunks) {
+      combinedBuffer.set(chunk, offset)
+      offset += chunk.length
+    }
+
+    // Resample to 16kHz (required by Sarvam AI)
+    const resampledBuffer = resampleAudio(
+      combinedBuffer,
+      audioContextRef.current!.sampleRate,
+      16000
+    )
+
+    // Encode as WAV
+    const wavBuffer = encodeWAV(resampledBuffer, 16000)
+
+    // Convert to Base64
+    const base64Audio = arrayBufferToBase64(wavBuffer)
+
+    // Send to backend
+    const chunkName = `chunk_${++chunkCounterRef.current}`
+    socketRef.current.emit('audio_chunk', {
+      audio: base64Audio,
+      timestamp: timestamp,
+      chunkName: chunkName,
+    })
+
+    console.log(`✅ Sent chunk: ${chunkName}`)
+  }, [])
+
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const audioCtx = new AudioContext()
+      if (!isConnected) {
+        console.error('❌ Not connected to transcription service')
+        return
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+
+      mediaStreamRef.current = stream
+
+      // Create audio context
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      audioContextRef.current = audioCtx
+
       const source = audioCtx.createMediaStreamSource(stream)
+      
+      // Create analyser for visualization
       const analyser = audioCtx.createAnalyser()
       analyser.fftSize = 128
       source.connect(analyser)
       analyserRef.current = analyser
 
+      // Create processor for transcription
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1)
+      processorRef.current = processor
+
+      audioChunksRef.current = []
+      lastChunkTimeRef.current = Date.now()
+      recordingStartTimeRef.current = Date.now()
+      chunkCounterRef.current = 0
+      // Note: We DON'T reset accumulatedTranscriptRef here
+      // This allows multiple recording sessions to append
+
+      processor.onaudioprocess = (event) => {
+        if (!isRecordingRef.current) return
+
+        const audioData = event.inputBuffer.getChannelData(0)
+        const int16Array = new Int16Array(audioData.length)
+
+        // Convert to Int16 and check for voice activity
+        const energy = calculateAudioEnergy(audioData)
+
+        for (let i = 0; i < audioData.length; i++) {
+          int16Array[i] = audioData[i] * 32767
+        }
+
+        // Only add chunk if there's significant audio
+        if (energy > 0.01) {
+          audioChunksRef.current.push(int16Array)
+        }
+
+        const currentTime = Date.now()
+        const elapsed = (currentTime - recordingStartTimeRef.current) / 1000
+        const timeSinceLastChunk = currentTime - lastChunkTimeRef.current
+
+        // Send chunks every 2 seconds
+        if (timeSinceLastChunk >= 2000 && audioChunksRef.current.length > 0) {
+          const chunksToSend = [...audioChunksRef.current]
+          audioChunksRef.current = []
+          sendAudioChunk(chunksToSend, elapsed)
+          lastChunkTimeRef.current = currentTime
+        }
+      }
+
+      source.connect(processor)
+      processor.connect(audioCtx.destination)
+
       cancelAnimationFrame(idleAnimRef.current)
       drawLive(analyser)
 
-      const recorder = new MediaRecorder(stream)
-      chunksRef.current = []
-      recorder.ondataavailable = (e) => chunksRef.current.push(e.data)
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        audioCtx.close()
-        cancelAnimationFrame(animFrameRef.current)
-        setState('transcribing')
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        const text = await transcribeAudio(blob)
-        if (text) onTranscript(text)
-        setState('idle')
-      }
-      recorder.start()
-      mediaRecorderRef.current = recorder
       setState('recording')
-    } catch {
+      isRecordingRef.current = true
+      console.log('✅ Recording started. Transcript will append to existing content.')
+    } catch (error) {
+      console.error('❌ Error accessing microphone:', error)
       setState('idle')
     }
   }
 
   const stopRecording = () => {
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
+    isRecordingRef.current = false
+    setState('idle')
+
+    // Stop processor
+    if (processorRef.current) {
+      processorRef.current.disconnect()
+      processorRef.current = null
+    }
+
+    // Stop analyser (but keep the reference for next recording)
+    if (analyserRef.current) {
+      analyserRef.current.disconnect()
+    }
+
+    // Close audio context
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+
+    // Stop media stream
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      mediaStreamRef.current = null
+    }
+
+    cancelAnimationFrame(animFrameRef.current)
+    
+    // Note: We DON'T reset accumulatedTranscriptRef here
+    // This allows multiple recording sessions to append to the same transcript
+    console.log('Recording stopped. Transcript preserved for next session.')
   }
 
   const handleClick = () => {
-    if (state === 'idle') startRecording()
-    else if (state === 'recording') stopRecording()
+    if (state === 'idle') {
+      startRecording()
+    } else if (state === 'recording') {
+      stopRecording()
+    }
+    // Note: transcribing state is disabled, so button is always clickable
   }
 
   const label = isRecording ? 'Tap to stop' : isTranscribing ? 'Transcribing…' : 'Tap to speak'
@@ -207,8 +391,8 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
           />
           <button
             onClick={handleClick}
-            disabled={isTranscribing}
-            className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all duration-500 cursor-pointer border-2 disabled:cursor-not-allowed ${
+            disabled={isTranscribing || !isConnected}
+            className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all duration-500 cursor-pointer border-2 disabled:cursor-not-allowed disabled:opacity-50 ${
               isRecording
                 ? 'border-[#ff006e] bg-[#ff006e15] shadow-[0_0_40px_#ff006e66]'
                 : 'border-[#00f5ff44] bg-[#0a0a0f] hover:border-[#00f5ff88] hover:shadow-[0_0_30px_#00f5ff33]'

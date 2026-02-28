@@ -51,13 +51,17 @@ export default function App() {
           </div>
         </Link>
 
-        <NavLink to="/vyapa" active={isVyapa}>
-          <span className={`text-sm font-semibold tracking-tight transition-colors duration-500 ${
-            isVyapa ? 'text-gray-900' : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
-          }`}>
-            Vyapa<span className={isVyapa ? 'text-gray-400' : 'text-[#4a4a6a]'}>.AI</span>
-          </span>
-        </NavLink>
+        <div className="flex items-center gap-6">
+          <NavLink to="/" active={location.pathname === '/'}>
+            Agent
+          </NavLink>
+          <NavLink to="/prompts" active={location.pathname === '/prompts'}>
+            System Prompts
+          </NavLink>
+          <NavLink to="/transcript" active={location.pathname === '/transcript'}>
+            Transcript
+          </NavLink>
+        </div>
       </nav>
 
       <main ref={mainRef} className="flex-1">

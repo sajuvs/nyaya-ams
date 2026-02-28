@@ -11,6 +11,7 @@ The orchestrator manages the feedback loop, ensuring quality output.
 import logging
 from typing import Dict, Any, List
 from datetime import datetime
+from langsmith import traceable
 
 from ..agents.researcher import ResearcherAgent
 from ..agents.drafter import DrafterAgent
@@ -106,6 +107,7 @@ class LegalAidOrchestrator:
         logger.info(f"LegalAidOrchestrator initialized for domain: {self.domain_config.display_name}")
         logger.info(f"RAG enabled: {self.domain_config.use_rag}, Web search enabled: {self.domain_config.use_web_search}")
     
+    @traceable(name="context_gathering")
     async def _gather_context(self, grievance: str, trace: AgentTrace) -> str:
         """
         Gather context from both local documents and web sources.
@@ -170,6 +172,7 @@ class LegalAidOrchestrator:
         
         return combined
     
+    @traceable(name="workflow_start_research")
     async def start_research(self, grievance: str) -> Dict[str, Any]:
         """Start workflow and return research findings for human review.
         
@@ -230,6 +233,7 @@ class LegalAidOrchestrator:
             "message": "Please review and approve the research findings to continue."
         }
     
+    @traceable(name="workflow_continue_draft")
     async def continue_with_draft(self, session_id: str, approved_research: Dict[str, Any]) -> Dict[str, Any]:
         """Continue workflow with approved research and generate draft.
         
@@ -296,6 +300,7 @@ class LegalAidOrchestrator:
                       f"Approve or provide feedback for refinement ({self.MAX_ITERATIONS - 1} refinements remaining)."
         }
     
+    @traceable(name="workflow_refine_draft")
     async def refine_draft(self, session_id: str, human_feedback: str) -> Dict[str, Any]:
         """Refine draft based on human feedback.
         
@@ -378,6 +383,7 @@ class LegalAidOrchestrator:
                       f"Approve or provide additional feedback ({self.MAX_ITERATIONS - iteration} refinements remaining)."
         }
     
+    @traceable(name="workflow_finalize")
     async def finalize_workflow(self, session_id: str) -> Dict[str, Any]:
         """Finalize workflow with human approval.
         
@@ -447,6 +453,7 @@ class LegalAidOrchestrator:
         
         return result
     
+    @traceable(name="full_legal_aid_workflow")
     async def generate_legal_aid(self, grievance: str) -> Dict[str, Any]:
         """
         Generate a legal aid document through multi-agent collaboration.

@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,8 @@ Create your analysis/document based on the above information.""")
         ])
         
         self.chain = self.prompt | self.llm
-        
+    
+    @traceable(name="legal_petition_drafting")
     async def draft(self, grievance: str, research_findings: Dict[str, Any], feedback: str = "") -> str:
         """
         Draft a formal legal petition based on research findings.

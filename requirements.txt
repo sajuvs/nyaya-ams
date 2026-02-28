@@ -14,6 +14,7 @@ faiss-cpu
 chromadb
 langchain-groq
 tavily-python
+langsmith
 pytest
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
@@ -21,6 +22,9 @@ pydantic>=2.0.0
 fastapi
 uvicorn
 pytest-asyncio
+python-socketio>=5.9.0
+sarvamai>=0.1.0
+pydub>=0.25.1
 
 
 
