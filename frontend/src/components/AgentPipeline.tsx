@@ -124,7 +124,7 @@ export default function AgentPipeline({ steps, onApprove, onReject, agentOutputs
                         className="flex-1 py-3 rounded-lg text-xs tracking-widest uppercase border border-[#ff006e44]
                           text-[#ff006e] hover:bg-[#ff006e11] transition-all cursor-pointer"
                       >
-                        ✕ Re-run
+                        ✕ Reject
                       </button>
                     </div>
                   </>
