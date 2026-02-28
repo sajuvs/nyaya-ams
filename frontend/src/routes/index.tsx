@@ -1,47 +1,57 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
+import VoiceInput from '../components/VoiceInput'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useGSAP } from '@gsap/react'
-import { runAgent } from '../api/agent'
+import { runAgent, type ResearchFindings } from '../api/agent'
 import { AGENTS, type AgentStep } from '../utils/dummyData'
 import AgentPipeline from '../components/AgentPipeline'
+import AgentDetailPanel from '../components/AgentDetailPanel'
 import MarkdownOutput from '../components/MarkdownOutput'
-import FileUpload from '../components/FileUpload'
 
 type Phase = 'input' | 'processing' | 'done'
 
 export default function AgentPage() {
   const [phase, setPhase] = useState<Phase>('input')
+  const [inputMode, setInputMode] = useState<'text' | 'voice'>('text')
   const [complaint, setComplaint] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [steps, setSteps] = useState<AgentStep[]>([])
   const [output, setOutput] = useState('')
+  const [agentOutputs, setAgentOutputs] = useState<Record<string, ResearchFindings | string>>({})
+  const [detailAgent, setDetailAgent] = useState<string | null>(null)
+  const [translationNotice, setTranslationNotice] = useState<string | null>(null)
 
   const phaseRef = useRef<Phase>('input')
+  const canViewResults = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const sec1Ref = useRef<HTMLDivElement>(null)
   const sec2Ref = useRef<HTMLDivElement>(null)
   const sec3Ref = useRef<HTMLDivElement>(null)
   const glitchRef = useRef<HTMLDivElement>(null)
+  const hitlResolvers = useRef<Record<string, (approved: boolean) => void>>({})
 
-  // Keep phaseRef in sync for use inside event listeners
   useEffect(() => { phaseRef.current = phase }, [phase])
 
-  // Block scroll forward when phase hasn't unlocked the next section
   useEffect(() => {
-    const block = (e: Event) => {
+    const block = (e: WheelEvent) => {
       const y = window.scrollY
       const vh = window.innerHeight
-      const isScrollingDown = e instanceof WheelEvent ? e.deltaY > 0 : true
-      if (!isScrollingDown) return
-      if (y < vh * 0.5 && phaseRef.current === 'input') e.preventDefault()
-      else if (y >= vh * 0.5 && y < vh * 1.5 && phaseRef.current === 'processing') e.preventDefault()
+      const down = e.deltaY > 0
+      if (y < vh * 0.9 && down && phaseRef.current === 'input') { e.preventDefault(); return }
+      if (y >= vh * 0.9 && y < vh * 1.9 && down && !canViewResults.current) { e.preventDefault(); return }
+    }
+    const blockTouch = (e: TouchEvent) => {
+      const y = window.scrollY
+      const vh = window.innerHeight
+      if (y < vh * 0.9 && phaseRef.current === 'input') { e.preventDefault(); return }
+      if (y >= vh * 0.9 && y < vh * 1.9 && !canViewResults.current) { e.preventDefault(); return }
     }
     window.addEventListener('wheel', block, { passive: false })
-    window.addEventListener('touchmove', block, { passive: false })
+    window.addEventListener('touchmove', blockTouch, { passive: false })
     return () => {
       window.removeEventListener('wheel', block)
-      window.removeEventListener('touchmove', block)
+      window.removeEventListener('touchmove', blockTouch)
     }
   }, [])
 
@@ -69,7 +79,6 @@ export default function AgentPage() {
       })
     })
 
-    // Sec 1 exit: shatter slices
     gsap.timeline({
       scrollTrigger: { trigger: sec1Ref.current, start: 'top top', end: '+=600', scrub: 2.5 },
     })
@@ -81,19 +90,16 @@ export default function AgentPage() {
         0
       )
 
-    // Sec 2 entrance: zoom through from small
     gsap.timeline({
       scrollTrigger: { trigger: sec2Ref.current, start: 'top 90%', end: 'top top', scrub: 2 },
     })
       .fromTo(sec2Ref.current, { scale: 0.82, opacity: 0, filter: 'blur(20px)' }, { scale: 1, opacity: 1, filter: 'blur(0px)', ease: 'power3.out' })
 
-    // Sec 2 exit: zoom past camera
     gsap.timeline({
       scrollTrigger: { trigger: sec2Ref.current, start: 'top top', end: '+=600', scrub: 2.5 },
     })
       .to(sec2Ref.current, { scale: 1.12, opacity: 0, filter: 'blur(16px)', ease: 'power2.in' }, 0)
 
-    // Sec 3 entrance: zoom through from small
     gsap.timeline({
       scrollTrigger: { trigger: sec3Ref.current, start: 'top 90%', end: 'top top', scrub: 2 },
     })
@@ -101,6 +107,74 @@ export default function AgentPage() {
 
     return () => ScrollTrigger.getAll().forEach((t) => t.kill())
   }, { scope: containerRef })
+
+  const waitForApproval = useCallback((agentId: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      hitlResolvers.current[agentId] = resolve
+    })
+  }, [])
+
+  const handleApprove = (agentId: string) => {
+    hitlResolvers.current[agentId]?.(true)
+    delete hitlResolvers.current[agentId]
+  }
+
+  const handleReject = (agentId: string) => {
+    hitlResolvers.current[agentId]?.(false)
+    delete hitlResolvers.current[agentId]
+  }
+
+  const runPipeline = useCallback(async (complaintText: string, attachedFiles: File[]) => {
+    const initialSteps: AgentStep[] = AGENTS.map((a, i) => ({
+      agentId: a.id,
+      status: i === 0 ? 'running' as const : 'pending' as const
+    }))
+    setSteps(initialSteps)
+    setTranslationNotice(null)
+    scrollTo(sec2Ref.current, 400)
+
+    try {
+      const result = await runAgent(
+        complaintText,
+        attachedFiles,
+        (agentId) => {
+          setSteps((prev) => prev.map((s) => s.agentId === agentId ? { ...s, status: 'done' as const } : s))
+        },
+        async (agentId, output) => {
+          setAgentOutputs((prev) => ({ ...prev, [agentId]: output }))
+          setSteps((prev) => prev.map((s) =>
+            s.agentId === agentId ? { ...s, status: 'awaiting-approval' as const } : s
+          ))
+          const approved = await waitForApproval(agentId)
+          if (!approved) {
+            setDetailAgent(null)
+            setAgentOutputs((prev) => { const n = { ...prev }; delete n[agentId]; return n })
+            setSteps((prev) => prev.map((s) =>
+              s.agentId === agentId ? { ...s, status: 'pending' as const } : s
+            ))
+          }
+          return approved
+        },
+        'legal_ai',
+        (agentId) => {
+          setSteps((prev) => prev.map((s) => s.agentId === agentId ? { ...s, status: 'running' as const } : s))
+        },
+        (wasTranslated, originalText) => {
+          if (wasTranslated) {
+            setTranslationNotice(`Translated from regional language: "${originalText?.substring(0, 100)}..."`)
+          }
+        }
+      )
+      setOutput(result)
+      setPhase('done')
+    } catch (err) {
+      console.error('Pipeline error:', err)
+      // Reset stuck agents to show error state
+      setSteps((prev) => prev.map((s) =>
+        s.status === 'running' ? { ...s, status: 'pending' as const } : s
+      ))
+    }
+  }, [waitForApproval])
 
   const handleSubmit = async () => {
     if (!complaint.trim()) return
@@ -114,40 +188,26 @@ export default function AgentPage() {
     }
 
     setPhase('processing')
-    const initialSteps: AgentStep[] = AGENTS.map((a) => ({ agentId: a.id, status: 'pending' }))
-    setSteps(initialSteps)
-    scrollTo(sec2Ref.current, 400)
-
-    const result = await runAgent(complaint, files, (agentId) => {
-      setSteps((prev) => {
-        const updated = prev.map((s) => s.agentId === agentId ? { ...s, status: 'done' as const } : s)
-        const next = AGENTS[AGENTS.findIndex((a) => a.id === agentId) + 1]
-        if (next) return updated.map((s) => s.agentId === next.id ? { ...s, status: 'running' as const } : s)
-        return updated
-      })
-    })
-
-    setOutput(result)
-    setPhase('done')
+    await runPipeline(complaint, files)
   }
 
   const handleReset = () => {
-    setPhase('input')
-    setComplaint('')
-    setFiles([])
-    setSteps([])
-    setOutput('')
+    // Hide sec2/sec3 immediately before scrolling so they're never visible during transition
     gsap.set(sec2Ref.current, { scale: 0.82, opacity: 0, filter: 'blur(20px)' })
     gsap.set(sec3Ref.current, { scale: 0.82, opacity: 0, filter: 'blur(20px)' })
     gsap.set(sec1Ref.current, { yPercent: 0, scale: 1, opacity: 1 })
     gsap.set(sec1Ref.current?.querySelectorAll('.slice') ?? [], { y: 0, skewY: 0 })
-    scrollTo(sec1Ref.current)
+    window.scrollTo({ top: 0, behavior: 'instant' })
+    setDetailAgent(null)
+    canViewResults.current = false
+    setPhase('input')
+    setInputMode('text')
+    setComplaint('')
+    setFiles([])
+    setSteps([])
+    setOutput('')
+    setAgentOutputs({})
   }
-
-  const displaySteps = steps.map((s, i) =>
-    i === 0 && s.status === 'pending' && phase === 'processing'
-      ? { ...s, status: 'running' as const } : s
-  )
 
   return (
     <div ref={containerRef} className="relative" style={{ height: '300vh' }}>
@@ -168,25 +228,57 @@ export default function AgentPage() {
             opacity: 0.03,
           }} />
         ))}
-        <div className="relative z-10 w-full max-w-xl px-6">
-          <div className="mb-8 text-center">
+        <div className="relative z-10 w-full max-w-4xl px-8 flex flex-col items-center">
+          <div className="mb-8 text-center w-full">
+            {/* Mode toggle */}
+            <div className="flex items-center justify-center mb-5">
+              <div className="flex items-center gap-1.5 border border-[#1a1a2e] rounded-full p-1.5 bg-[#0a0a0f]">
+                <button
+                  onClick={() => setInputMode('voice')}
+                  className={`flex items-center justify-center w-12 h-10 rounded-full text-sm font-medium transition-all duration-300 cursor-pointer ${
+                    inputMode === 'voice'
+                      ? 'bg-[#ff006e22] text-[#ff006e] border border-[#ff006e44] shadow-[0_0_16px_#ff006e22]'
+                      : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
+                  }`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/>
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setInputMode('text')}
+                  className={`flex items-center justify-center w-12 h-10 rounded-full text-sm font-medium transition-all duration-300 cursor-pointer ${
+                    inputMode === 'text'
+                      ? 'bg-[#00f5ff22] text-[#00f5ff] border border-[#00f5ff44] shadow-[0_0_16px_#00f5ff22]'
+                      : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
+                  }`}
+                >
+                  <span style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: '15px', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1 }}>Abc</span>
+                </button>
+              </div>
+            </div>
             <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-3">AI Legal Assessment</p>
-            <h1 className="text-4xl font-bold text-[#e0e0ff] leading-tight mb-2">Know your rights.</h1>
-            <p className="text-lg text-[#00f5ff] neon-cyan font-medium">Describe your situation.</p>
+            <h1 className="text-5xl font-bold text-[#e0e0ff] leading-tight mb-2">Know your rights.</h1>
+            <p className="text-xl text-[#00f5ff] neon-cyan font-medium">Describe your situation.</p>
           </div>
-          <div className="border border-[#1a1a2e] glow-border-cyan rounded-2xl p-6 bg-[#0f0f1a]">
-            <textarea
-              value={complaint}
-              onChange={(e) => setComplaint(e.target.value)}
-              placeholder="e.g. I paid ₹50,000 to a contractor for home renovation. He took the money but never started work and is now unreachable..."
-              rows={6}
-              className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-xl p-4 text-sm text-[#e0e0ff] placeholder-[#2a2a4a] resize-none outline-none focus:border-[#00f5ff44] transition-colors duration-300"
-            />
-            <div className="mt-3"><FileUpload onFilesChange={setFiles} /></div>
+          <div className="border border-[#1a1a2e] glow-border-cyan rounded-2xl p-8 bg-[#0f0f1a] w-full">
+            <div style={{ height: '320px' }}>
+              {inputMode === 'text' ? (
+                <textarea
+                  value={complaint}
+                  onChange={(e) => setComplaint(e.target.value)}
+                  placeholder="e.g. I paid ₹50,000 to a contractor for home renovation. He took the money but never started work and is now unreachable..."
+                  className="w-full h-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-xl p-5 text-base text-[#e0e0ff] placeholder-[#2a2a4a] resize-none outline-none focus:border-[#00f5ff44] transition-colors duration-300"
+                />
+              ) : (
+                <VoiceInput transcript={complaint} onTranscript={(text) => setComplaint(text)} />
+              )}
+            </div>
+
             <button
               onClick={handleSubmit}
               disabled={!complaint.trim()}
-              className="mt-4 w-full py-3 rounded-xl text-sm tracking-[0.3em] uppercase font-medium transition-all duration-300
+              className="mt-5 w-full py-4 rounded-xl text-sm tracking-[0.3em] uppercase font-medium transition-all duration-300
                 bg-gradient-to-r from-[#00f5ff22] to-[#bf00ff22] border border-[#00f5ff44]
                 text-[#00f5ff] hover:from-[#00f5ff33] hover:to-[#bf00ff33] hover:shadow-[0_0_30px_#00f5ff33]
                 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
@@ -202,35 +294,57 @@ export default function AgentPage() {
         <div className="absolute inset-0 pointer-events-none"
           style={{ background: 'repeating-linear-gradient(90deg, transparent, transparent 80px, #00f5ff04 80px, #00f5ff04 81px)' }}
         />
-        <div className="relative z-10 flex flex-col items-center gap-8 px-6 w-full max-w-lg">
-          <div className="text-center">
-            <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-2">Processing</p>
-            <h2 className="text-2xl font-bold text-[#e0e0ff]">Agent Pipeline</h2>
-            <p className="text-sm text-[#4a4a6a] mt-1">Sequential analysis in progress</p>
+        <div className="relative z-10 w-full h-full max-h-[90vh] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-6 w-full max-w-4xl px-8">
+            <div className="text-center">
+              <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-2">Processing</p>
+              <h2 className="text-3xl font-bold text-[#e0e0ff]">Agent Pipeline</h2>
+              <p className="text-base text-[#4a4a6a] mt-1">Sequential analysis in progress</p>
+              {translationNotice && (
+                <div className="mt-3 px-4 py-2 bg-[#00f5ff11] border border-[#00f5ff44] rounded-lg">
+                  <p className="text-sm text-[#00f5ff]">✓ {translationNotice}</p>
+                </div>
+              )}
+            </div>
+            <AgentPipeline
+              steps={steps}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              agentOutputs={agentOutputs}
+              onToggleDetail={(agentId) => {
+                setDetailAgent(detailAgent === agentId ? null : agentId)
+              }}
+            />
+            {phase === 'done' && (
+              <button
+                onClick={() => { canViewResults.current = true; scrollTo(sec3Ref.current, 600) }}
+                className="text-xs tracking-[0.3em] uppercase text-[#00f5ff] border border-[#00f5ff44] px-8 py-3 rounded-lg
+                  hover:bg-[#00f5ff11] transition-all cursor-pointer animate-pulse"
+              >
+                View Results ↓
+              </button>
+            )}
           </div>
-          <AgentPipeline steps={displaySteps} />
-          {phase === 'done' && (
-            <button
-              onClick={() => scrollTo(sec3Ref.current, 600)}
-              className="text-xs tracking-[0.3em] uppercase text-[#00f5ff] border border-[#00f5ff44] px-6 py-2 rounded-lg
-                hover:bg-[#00f5ff11] transition-all cursor-pointer animate-pulse"
-            >
-              View Results ↓
-            </button>
-          )}
         </div>
       </section>
+
+      <AgentDetailPanel
+        isOpen={detailAgent !== null && !!agentOutputs[detailAgent ?? '']}
+        agentName={detailAgent ? (AGENTS.find((a) => a.id === detailAgent)?.name ?? '') : ''}
+        data={detailAgent ? (agentOutputs[detailAgent] ?? null) : null}
+        onClose={() => setDetailAgent(null)}
+      />
 
       {/* ── SECTION 3: Output ── */}
       <section ref={sec3Ref} className="relative h-screen flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0 pointer-events-none"
           style={{ background: 'radial-gradient(ellipse at center, #bf00ff08 0%, transparent 70%)' }}
         />
-        <div className="relative z-10 w-full max-w-3xl px-6">
-          <div className="flex items-center justify-between mb-5">
+        <div className="relative z-10 w-full max-w-5xl px-8">
+          <div className="flex items-center justify-between mb-6">
             <div>
               <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a]">Assessment Complete</p>
-              <h2 className="text-xl font-bold text-[#e0e0ff] mt-0.5">Legal Analysis</h2>
+              <h2 className="text-2xl font-bold text-[#e0e0ff] mt-0.5">Legal Analysis</h2>
             </div>
             <button
               onClick={handleReset}
@@ -242,6 +356,7 @@ export default function AgentPage() {
           {output && <MarkdownOutput content={output} />}
         </div>
       </section>
+
     </div>
   )
 }

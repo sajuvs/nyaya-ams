@@ -7,46 +7,44 @@ import logging
 from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
 
 class DrafterAgent:
     """
-    Senior Legal Draftsman that creates professional legal petitions.
+    Drafting Agent with dynamic domain-specific prompts.
     
-    Takes research findings and user stories to generate formal legal documents.
+    Can be configured for different domains (legal, product comparison, etc.)
+    Requires a system_prompt to be provided - no default prompt.
     """
     
-    SYSTEM_PROMPT = """You are a Senior Legal Draftsman. Your task is to take "Research Findings" from the Researcher Agent and the "User Story" to create a professional legal petition.
-
-**STRICT GUIDELINES:**
-1. STRUCTURE: Use a formal Indian legal format (To, From, Subject, Body, Prayer/Relief).
-2. LANGUAGE: Use formal English, but ensure the "Prayer" (what the user wants) is crystal clear.
-3. BILINGUAL: If the user mentioned "Malayalam," include a 1-paragraph summary in Malayalam at the end for clarity.
-4. PLACEHOLDERS: Use brackets like [INSERT DATE] or [INSERT ADDRESS] for missing user info.
-5. NO HALLUCINATION: Only use the laws provided by the Researcher Agent.
-
-**OUTPUT FORMAT:**
-- Document Title: [e.g., Consumer Complaint under Consumer Protection Act 2019]
-- The Draft: [The full text of the petition with proper sections]
-- Next Steps: [What the user needs to do with this document]
-
-**TONE:** Respectful yet firm, following Indian legal conventions."""
-    
-    def __init__(self, model_name: str = "gpt-4.1", temperature: float = 0.2):
+    def __init__(self, model_name: str = "gpt-4.1", temperature: float = 0.2, system_prompt: str = None):
         """
         Initialize the Drafter Agent.
         
         Args:
             model_name: The LLM model to use for drafting
             temperature: Controls creativity (slightly higher for natural language)
+            system_prompt: Domain-specific system prompt (REQUIRED)
+            
+        Raises:
+            ValueError: If system_prompt is not provided
         """
-        self.llm = ChatOpenAI(model=model_name, temperature=temperature)
+        if not system_prompt:
+            raise ValueError(
+                "DrafterAgent requires a system_prompt. "
+                "Load a domain configuration and pass the drafter_prompt."
+            )
         
+        self.llm = ChatOpenAI(model=model_name, temperature=temperature)
+        self.system_prompt = system_prompt
+        
+        # Domain-agnostic human message template
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", self.SYSTEM_PROMPT),
-            ("human", """User Grievance:
+            ("system", self.system_prompt),
+            ("human", """User Query:
 {grievance}
 
 Research Findings:
@@ -54,11 +52,12 @@ Research Findings:
 
 {feedback_section}
 
-Create a formal legal petition based on the above information.""")
+Create your analysis/document based on the above information.""")
         ])
         
         self.chain = self.prompt | self.llm
-        
+    
+    @traceable(name="legal_petition_drafting")
     async def draft(self, grievance: str, research_findings: Dict[str, Any], feedback: str = "") -> str:
         """
         Draft a formal legal petition based on research findings.

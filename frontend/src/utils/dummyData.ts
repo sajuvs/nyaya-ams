@@ -2,32 +2,24 @@ export interface Agent {
   id: string
   name: string
   role: string
+  runningDescription: string
+  requiresApproval?: boolean
   systemPrompt: string
 }
 
 export interface AgentStep {
   agentId: string
-  status: 'pending' | 'running' | 'done'
+  status: 'pending' | 'running' | 'awaiting-approval' | 'done'
   output?: string
 }
 
 export const AGENTS: Agent[] = [
   {
-    id: 'intake',
-    name: 'Intake Analyst',
-    role: 'Parses and structures the user\'s complaint',
-    systemPrompt: `You are a legal intake specialist for Indian law. Your job is to carefully read the user's situation and extract:
-1. The core grievance
-2. Parties involved (complainant vs respondent)
-3. Timeline of events
-4. Any documents or evidence mentioned
-
-Be precise, neutral, and structured. Output in clean bullet points.`,
-  },
-  {
     id: 'legal-researcher',
     name: 'Legal Researcher',
     role: 'Identifies applicable Indian laws and sections',
+    runningDescription: 'Stripping personal identifiers, cross-referencing Kerala legal archives and government statutes, surfacing applicable BNS sections, Consumer Protection Act provisions, and High Court precedents…',
+    requiresApproval: true,
     systemPrompt: `You are an expert in Indian law with deep knowledge of IPC, CrPC, Consumer Protection Act, RTI Act, IT Act, and other central/state legislation.
 
 Given a structured complaint, identify:
@@ -39,9 +31,24 @@ Given a structured complaint, identify:
 Always cite specific section numbers.`,
   },
   {
+    id: 'document-drafter',
+    name: 'Document Drafter',
+    role: 'Generates a structured legal petition',
+    runningDescription: 'Weaving research findings into a court-ready petition — structuring the To, From, Prayer, and Relief sections with precise legal language and Kerala jurisdiction formatting…',
+    systemPrompt: `You are a legal document specialist. Given research findings, draft a formal legal petition following Indian court standards.
+
+1. Use proper legal language and formatting
+2. Address the correct authority (court/forum)
+3. Cite all relevant sections identified in research
+4. Include prayer/relief sought
+5. Follow Kerala High Court formatting where applicable`,
+  },
+  {
     id: 'viability-assessor',
     name: 'Viability Assessor',
-    role: 'Evaluates strength of the complaint',
+    role: 'Audits the draft and evaluates case strength',
+    runningDescription: 'Reading through the petition line by line — auditing jurisdiction, cross-checking every cited statute is current, and reviewing the structure and tone against Kerala High Court standards…',
+    requiresApproval: true,
     systemPrompt: `You are a senior Indian advocate with 20 years of litigation experience. Given a complaint and the applicable laws, assess:
 
 1. Strength of the case (Strong / Moderate / Weak) with reasoning
@@ -50,20 +57,6 @@ Always cite specific section numbers.`,
 4. Realistic outcome probability
 
 Be honest and direct. Do not give false hope.`,
-  },
-  {
-    id: 'action-planner',
-    name: 'Action Planner',
-    role: 'Recommends next steps for the complainant',
-    systemPrompt: `You are a legal advisor helping a layman navigate the Indian legal system. Given the complaint analysis and viability assessment, provide:
-
-1. Immediate steps (what to do in the next 7 days)
-2. Which authority to approach first (police, consumer forum, civil court, etc.)
-3. Documents to gather
-4. Whether a lawyer is necessary or if self-representation is viable
-5. Estimated timeline and costs
-
-Use simple, jargon-free language. The user is not a lawyer.`,
   },
 ]
 

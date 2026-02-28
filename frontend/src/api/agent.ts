@@ -1,13 +1,15 @@
 import type { Agent } from '../utils/dummyData'
 
 // API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
-
-// Debug: Log the API URL being used
-console.log('API_BASE_URL:', API_BASE_URL)
-console.log('import.meta.env.VITE_API_URL:', import.meta.env.VITE_API_URL)
+const API_BASE_URL = 'http://localhost:8000/api/v1'
 
 // Type definitions matching backend schemas
+export interface Domain {
+  domain_name: string
+  display_name: string
+  description: string
+}
+
 export interface ResearchFindings {
   summary_of_facts: string[]
   legal_provisions: string[]
@@ -29,6 +31,8 @@ export interface StartWorkflowResponse {
   research_findings: ResearchFindings
   agent_traces: AgentTrace[]
   message: string
+  was_translated?: boolean
+  original_text?: string
 }
 
 export interface ApproveResearchResponse {
@@ -101,12 +105,18 @@ export async function checkHealth(): Promise<{ status: string; service: string; 
   return handleResponse(response)
 }
 
+// List Available Domains
+export async function listDomains(): Promise<{ domains: Domain[]; total: number }> {
+  const response = await fetch(`${API_BASE_URL}/domains`)
+  return handleResponse(response)
+}
+
 // Start Legal Aid Workflow
-export async function startLegalAid(grievance: string): Promise<StartWorkflowResponse> {
+export async function startLegalAid(grievance: string, domain: string = 'legal_ai'): Promise<StartWorkflowResponse> {
   const response = await fetch(`${API_BASE_URL}/start-legal-aid`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grievance })
+    body: JSON.stringify({ grievance, domain, is_approved: true })
   })
   return handleResponse(response)
 }
@@ -114,14 +124,16 @@ export async function startLegalAid(grievance: string): Promise<StartWorkflowRes
 // Approve Research Findings
 export async function approveResearch(
   sessionId: string,
-  approvedResearch: ResearchFindings
+  approvedResearch: ResearchFindings,
+  isApproved: boolean
 ): Promise<ApproveResearchResponse> {
   const response = await fetch(`${API_BASE_URL}/approve-research`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       session_id: sessionId,
-      approved_research: approvedResearch
+      approved_research: approvedResearch,
+      is_approved: isApproved
     })
   })
   return handleResponse(response)
@@ -164,30 +176,64 @@ export async function getWorkflowStatus(sessionId: string): Promise<WorkflowStat
 export async function runAgent(
   complaint: string,
   _files: File[],
-  onStepComplete: (agentId: string) => void
+  onStepComplete: (agentId: string) => void,
+  onAwaitApproval?: (agentId: string, output: ResearchFindings | string) => Promise<boolean>,
+  domain: string = 'legal_ai',
+  onSetRunning?: (agentId: string) => void,
+  onTranslation?: (wasTranslated: boolean, originalText?: string) => void
 ): Promise<string> {
   try {
-    // Step 1: Start workflow (Research phase)
-    onStepComplete('intake')
-    const startResponse = await startLegalAid(complaint)
-    
-    onStepComplete('legal-researcher')
-    
-    // Step 2: Auto-approve research (for backward compatibility)
-    await approveResearch(
-      startResponse.session_id,
-      startResponse.research_findings
-    )
-    
-    onStepComplete('viability-assessor')
-    
-    // Step 3: Auto-finalize (for backward compatibility)
-    const finalResponse = await finalizeLegalAid(startResponse.session_id)
-    
-    onStepComplete('action-planner')
-    
-    // Return the final document
-    return finalResponse.final_document
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const startResponse = await startLegalAid(complaint, domain)
+
+      if (onTranslation && startResponse.was_translated) {
+        onTranslation(startResponse.was_translated, startResponse.original_text)
+      }
+
+      // HITL: pause for legal-researcher approval
+      if (onAwaitApproval) {
+        const approved = await onAwaitApproval('legal-researcher', startResponse.research_findings)
+        if (!approved) {
+          await approveResearch(startResponse.session_id, startResponse.research_findings, false)
+          continue
+        }
+      }
+      onStepComplete('legal-researcher')
+      onSetRunning?.('document-drafter')
+
+      // Step 2: Document Drafter
+      let currentDraft = await approveResearch(
+        startResponse.session_id,
+        startResponse.research_findings,
+        true
+      )
+      onStepComplete('document-drafter')
+      onSetRunning?.('viability-assessor')
+
+      // HITL loop: viability-assessor can reject and request refinement
+      while (true) {
+        if (onAwaitApproval) {
+          const approved = await onAwaitApproval('viability-assessor', currentDraft.draft)
+          if (!approved) {
+            onSetRunning?.('document-drafter')
+            const refined = await reviewDraft(startResponse.session_id, 'Please revise and improve the draft.')
+            onStepComplete('document-drafter')
+            onSetRunning?.('viability-assessor')
+            currentDraft = refined
+            continue
+          }
+        }
+        break
+      }
+
+      // Step 3: Finalize
+      onSetRunning?.('viability-assessor')
+      const finalResponse = await finalizeLegalAid(startResponse.session_id)
+      onStepComplete('viability-assessor')
+
+      return finalResponse.final_document || currentDraft.draft
+    }
   } catch (error) {
     if (error instanceof APIError) {
       throw new Error(`API Error (${error.status}): ${error.message}`)

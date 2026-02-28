@@ -11,14 +11,16 @@ The orchestrator manages the feedback loop, ensuring quality output.
 import logging
 from typing import Dict, Any, List
 from datetime import datetime
+from langsmith import traceable
 
 from ..agents.researcher import ResearcherAgent
 from ..agents.drafter import DrafterAgent
 from ..agents.expert_reviewer import ExpertReviewerAgent
 from src.search import RAGSearch
-from tools.tavily_tool import tavily_search_tool
+from tools.tavily_tool import create_tavily_search_tool, TavilySearchConfig
 from .workflow_state import WorkflowState
 from ..utils.pii_redactor import pii_redactor
+from config.domain_loader import DomainLoader
 
 logger = logging.getLogger(__name__)
 
@@ -69,63 +71,98 @@ class LegalAidOrchestrator:
     
     MAX_ITERATIONS = 3  # Prevent infinite loops
     
-    def __init__(self):
-        """Initialize the orchestrator with all three agents."""
-        self.researcher = ResearcherAgent()
-        self.drafter = DrafterAgent()
-        self.expert_reviewer = ExpertReviewerAgent()
-        self.rag_search = RAGSearch()
-        logger.info("LegalAidOrchestrator initialized with 3 agents and RAG search")
-    
-    async def _gather_context(self, grievance: str, trace: AgentTrace) -> str:
+    def __init__(self, domain: str = "legal_ai"):
         """
-        Gather legal context from both local documents and web sources.
+        Initialize the orchestrator with domain-specific agents.
         
         Args:
-            grievance: The user's legal issue
+            domain: Domain name (e.g., "legal_ai", "product_comparison")
+        """
+        # Load domain configuration
+        self.domain_config = DomainLoader.load_domain(domain)
+        self.domain = domain
+        
+        # Initialize agents with domain-specific prompts
+        self.researcher = ResearcherAgent(system_prompt=self.domain_config.researcher_prompt)
+        self.drafter = DrafterAgent(system_prompt=self.domain_config.drafter_prompt)
+        self.expert_reviewer = ExpertReviewerAgent(system_prompt=self.domain_config.reviewer_prompt)
+        
+        # Initialize RAG search (only used if domain requires it)
+        self.rag_search = RAGSearch() if self.domain_config.use_rag else None
+        
+        # Initialize domain-specific Tavily search tool
+        if self.domain_config.use_web_search and self.domain_config.search_config:
+            search_cfg = self.domain_config.search_config
+            self.tavily_config = TavilySearchConfig(
+                allowed_domains=search_cfg.get("allowed_domains"),
+                search_depth=search_cfg.get("search_depth", "advanced"),
+                max_results=search_cfg.get("max_results", 5),
+                boilerplate_phrases=search_cfg.get("boilerplate_phrases", []),
+                description=search_cfg.get("description", "Search for relevant information")
+            )
+            self.tavily_search = create_tavily_search_tool(self.tavily_config)
+        else:
+            self.tavily_search = None
+        
+        logger.info(f"LegalAidOrchestrator initialized for domain: {self.domain_config.display_name}")
+        logger.info(f"RAG enabled: {self.domain_config.use_rag}, Web search enabled: {self.domain_config.use_web_search}")
+    
+    @traceable(name="context_gathering")
+    async def _gather_context(self, grievance: str, trace: AgentTrace) -> str:
+        """
+        Gather context from both local documents and web sources.
+        
+        Args:
+            grievance: The user's query/issue
             trace: Agent trace for logging
             
         Returns:
             Combined context from RAG and Tavily searches
         """
-        trace.add(
-            "orchestrator",
-            "gathering_context",
-            "Searching local Kerala acts (RAG) and online legal resources (Tavily)"
-        )
+        contexts = []
         
-        # 1. RAG Search for local Kerala acts
-        try:
-            local_context = self.rag_search.search_and_summarize(grievance, top_k=3)
+        # 1. RAG Search for local documents (if enabled for this domain)
+        if self.domain_config.use_rag and self.rag_search:
             trace.add(
-                "rag_search",
-                "local_search_complete",
-                f"Retrieved {len(local_context)} characters from local legal documents"
+                "orchestrator",
+                "gathering_rag_context",
+                "Searching local document store (RAG)"
             )
-        except Exception as e:
-            logger.warning(f"RAG search failed: {e}")
-            local_context = "No local documents found."
+            try:
+                local_context = self.rag_search.search_and_summarize(grievance, top_k=3)
+                contexts.append(f"LOCAL DOCUMENTS:\n{local_context}")
+                trace.add(
+                    "rag_search",
+                    "local_search_complete",
+                    f"Retrieved {len(local_context)} characters from local documents"
+                )
+            except Exception as e:
+                logger.warning(f"RAG search failed: {e}")
+                contexts.append("LOCAL DOCUMENTS: No local documents found.")
         
-        # 2. Tavily Search for online legal resources
-        try:
-            tavily_results = tavily_search_tool.func(grievance)
-            web_sources = tavily_results.get("sources", [])
-            web_context = "\n\n".join([f"{s['title']}: {s['content']}" for s in web_sources[:3]])
+        # 2. Tavily Search for online resources (if enabled for this domain)
+        if self.domain_config.use_web_search and self.tavily_search:
             trace.add(
-                "tavily_search",
-                "web_search_complete",
-                f"Found {tavily_results.get('total_results', 0)} relevant online sources"
+                "orchestrator",
+                "gathering_web_context",
+                "Searching online resources (Tavily)"
             )
-        except Exception as e:
-            logger.warning(f"Tavily search failed: {e}")
-            web_context = "No online resources found."
+            try:
+                tavily_results = self.tavily_search(grievance)
+                web_sources = tavily_results.get("sources", [])
+                web_context = "\n\n".join([f"{s['title']}: {s['content']}" for s in web_sources[:3]])
+                contexts.append(f"ONLINE RESOURCES:\n{web_context}")
+                trace.add(
+                    "tavily_search",
+                    "web_search_complete",
+                    f"Found {tavily_results.get('total_results', 0)} relevant online sources"
+                )
+            except Exception as e:
+                logger.warning(f"Tavily search failed: {e}")
+                contexts.append("ONLINE RESOURCES: No online resources found.")
         
         # 3. Combine contexts
-        combined = f"""LOCAL KERALA ACTS (from PDF store):
-{local_context}
-
-ONLINE LEGAL RESOURCES:
-{web_context}"""
+        combined = "\n\n".join(contexts) if contexts else "No additional context available."
         
         trace.add(
             "orchestrator",
@@ -135,6 +172,7 @@ ONLINE LEGAL RESOURCES:
         
         return combined
     
+    @traceable(name="workflow_start_research")
     async def start_research(self, grievance: str) -> Dict[str, Any]:
         """Start workflow and return research findings for human review.
         
@@ -148,6 +186,7 @@ ONLINE LEGAL RESOURCES:
         redacted_grievance, redaction_map = pii_redactor.redact(grievance)
         
         session_id = WorkflowState.create_session(grievance)
+        WorkflowState.update_session(session_id, {"domain": self.domain})
         trace = AgentTrace()
         
         trace.add(
@@ -194,6 +233,7 @@ ONLINE LEGAL RESOURCES:
             "message": "Please review and approve the research findings to continue."
         }
     
+    @traceable(name="workflow_continue_draft")
     async def continue_with_draft(self, session_id: str, approved_research: Dict[str, Any]) -> Dict[str, Any]:
         """Continue workflow with approved research and generate draft.
         
@@ -255,10 +295,12 @@ ONLINE LEGAL RESOURCES:
             "iteration": 1,
             "max_iterations": self.MAX_ITERATIONS,
             "remaining_iterations": self.MAX_ITERATIONS - 1,
+            "is_approved": True,
             "message": f"Please review the draft (Iteration 1/{self.MAX_ITERATIONS}). "
                       f"Approve or provide feedback for refinement ({self.MAX_ITERATIONS - 1} refinements remaining)."
         }
     
+    @traceable(name="workflow_refine_draft")
     async def refine_draft(self, session_id: str, human_feedback: str) -> Dict[str, Any]:
         """Refine draft based on human feedback.
         
@@ -341,6 +383,7 @@ ONLINE LEGAL RESOURCES:
                       f"Approve or provide additional feedback ({self.MAX_ITERATIONS - iteration} refinements remaining)."
         }
     
+    @traceable(name="workflow_finalize")
     async def finalize_workflow(self, session_id: str) -> Dict[str, Any]:
         """Finalize workflow with human approval.
         
@@ -401,6 +444,7 @@ ONLINE LEGAL RESOURCES:
             "agent_traces": trace.to_dict(),
             "iterations": session.get("iteration", 1),
             "status": "approved_by_human",
+            "is_approved": True,
             "timestamp": datetime.utcnow().isoformat()
         }
         
@@ -409,6 +453,7 @@ ONLINE LEGAL RESOURCES:
         
         return result
     
+    @traceable(name="full_legal_aid_workflow")
     async def generate_legal_aid(self, grievance: str) -> Dict[str, Any]:
         """
         Generate a legal aid document through multi-agent collaboration.

@@ -13,15 +13,24 @@ class LegalAidRequest(BaseModel):
         description="User's plain-text description of their legal issue",
         min_length=10
     )
+    domain: str = Field(
+        default="legal_ai",
+        description="Domain to use (legal_ai, product_comparison, etc.)"
+    )
     rag_context: Optional[str] = Field(
         default="",
         description="Additional legal context from vector store (optional)"
+    )
+    is_approved: Optional[bool] = Field(
+        default=True,
+        description="Human approval flag. True = start research, False = re-run research"
     )
     
     class Config:
         json_schema_extra = {
             "example": {
                 "grievance": "I purchased a defective mobile phone from a shop in Kochi. The seller refuses to provide a refund or replacement despite the phone not working within the warranty period.",
+                "domain": "legal_ai",
                 "rag_context": ""
             }
         }
@@ -96,6 +105,7 @@ class ResearchApprovalRequest(BaseModel):
     
     session_id: str = Field(..., description="Workflow session ID")
     approved_research: Dict[str, Any] = Field(..., description="Human-approved research findings")
+    is_approved: bool = Field(..., description="True to proceed to drafting, False to re-run research")
 
 
 class DraftReviewRequest(BaseModel):

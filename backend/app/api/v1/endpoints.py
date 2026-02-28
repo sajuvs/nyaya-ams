@@ -1,6 +1,6 @@
 """API v1 Endpoints for Legal Aid Generation."""
 import logging
-from typing import Dict
+from typing import Dict, List
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
@@ -14,6 +14,8 @@ from ...models.schemas import (
 )
 from ...services.orchestrator import LegalAidOrchestrator
 from ...services.workflow_state import WorkflowState
+from ...services.transcription_state import TranscriptionState
+from ...services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -51,19 +53,49 @@ async def generate_legal_aid(request: LegalAidRequest) -> LegalAidResponse:
         HTTPException: If the generation process fails
     """
     try:
-        logger.info(f"Received legal aid request: {request.grievance[:100]}...")
+        logger.info(f"Received request for domain '{request.domain}': {request.grievance[:100]}...")
         
-        orchestrator = LegalAidOrchestrator()
+        orchestrator = LegalAidOrchestrator(domain=request.domain)
         result = await orchestrator.generate_legal_aid(grievance=request.grievance)
         
-        logger.info(f"Legal aid generation complete. Status: {result['status']}")
+        logger.info(f"Generation complete. Status: {result['status']}")
         return LegalAidResponse(**result)
         
+    except FileNotFoundError as e:
+        logger.error(f"Domain not found: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Error generating legal aid: {str(e)}", exc_info=True)
+        logger.error(f"Error generating document: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate legal aid: {str(e)}"
+            detail=f"Failed to generate document: {str(e)}"
+        )
+
+
+@router.get(
+    "/domains",
+    status_code=status.HTTP_200_OK,
+    summary="List Available Domains",
+    description="Get list of all available domain configurations"
+)
+async def list_domains():
+    """List all available domains."""
+    try:
+        domains = DomainLoader.list_available_domains()
+        return JSONResponse(
+            content={
+                "domains": domains,
+                "total": len(domains)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error listing domains: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list domains: {str(e)}"
         )
 
 
@@ -92,19 +124,28 @@ async def health_check():
     "/start-legal-aid",
     status_code=status.HTTP_200_OK,
     summary="Start Legal Aid Workflow",
-    description="Start workflow and return research findings for human review"
+    description="Start workflow and return research findings for human review. Automatically translates regional language input to English."
 )
 async def start_legal_aid(request: LegalAidRequest) -> Dict:
-    """Start workflow with research phase."""
+    """Start workflow with research phase. Translates input if needed."""
     try:
         logger.info(f"Starting HITL workflow: {request.grievance[:100]}...")
         
+        # Translate if needed
+        translation_service = TranslationService()
+        translated_text, was_translated = await translation_service.detect_and_translate(request.grievance)
+        
+        if was_translated:
+            logger.info("Input was translated from regional language to English")
+        
         orchestrator = LegalAidOrchestrator()
-        result = await orchestrator.start_research(request.grievance)
+        result = await orchestrator.start_research(translated_text)
+        result["is_approved"] = request.is_approved
+        result["was_translated"] = was_translated
+        result["original_text"] = request.grievance if was_translated else None
         
         logger.info(f"Research complete. Session: {result['session_id']}")
         return result
-        
     except Exception as e:
         logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -116,33 +157,48 @@ async def start_legal_aid(request: LegalAidRequest) -> Dict:
 @router.post(
     "/approve-research",
     status_code=status.HTTP_200_OK,
-    summary="Approve Research Findings",
-    description="Approve/edit research and continue to drafting phase"
+    summary="Approve or Reject Research Findings",
+    description="is_approved=True proceeds to drafting, is_approved=False re-runs research"
 )
 async def approve_research(request: ResearchApprovalRequest) -> Dict:
-    """Continue workflow with approved research."""
+    """Continue or re-run based on human approval."""
     try:
-        logger.info(f"Research approved for session: {request.session_id}")
-        
-        orchestrator = LegalAidOrchestrator()
-        result = await orchestrator.continue_with_draft(
-            request.session_id,
-            request.approved_research
-        )
-        
-        logger.info(f"Draft generated for session: {request.session_id}")
+        session = WorkflowState.get_session(request.session_id)
+        if not session:
+            raise ValueError(f"Session {request.session_id} not found")
+        domain = session.get("domain", "legal_ai")
+        orchestrator = LegalAidOrchestrator(domain=domain)
+        if request.is_approved:
+            logger.info(f"Research approved for session: {request.session_id}")
+            result = await orchestrator.continue_with_draft(
+                request.session_id,
+                request.approved_research
+            )
+            result["is_approved"] = True
+        else:
+            logger.info(f"Research rejected, re-running for session: {request.session_id}")
+            # session already fetched above
+            WorkflowState.update_session(request.session_id, {"stage": "awaiting_research_approval"})
+            result = await orchestrator.start_research(session["grievance"])
+            new_session_id = result["session_id"]
+            # Copy new session data into original session, delete the new one
+            new_session = WorkflowState.get_session(new_session_id)
+            if new_session:
+                WorkflowState.update_session(request.session_id, {
+                    k: v for k, v in new_session.items() if k != "session_id"
+                })
+                WorkflowState.delete_session(new_session_id)
+            result["session_id"] = request.session_id
+            result["is_approved"] = False
+        logger.info(f"Research action complete for session: {request.session_id}")
         return result
-        
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"Error approving research: {str(e)}", exc_info=True)
+        logger.error(f"Error in approve_research: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to approve research: {str(e)}"
+            detail=f"Failed to process research approval: {str(e)}"
         )
 
 
@@ -157,7 +213,13 @@ async def review_draft(request: DraftReviewRequest) -> Dict:
     try:
         logger.info(f"Draft feedback received for session: {request.session_id}")
         
-        orchestrator = LegalAidOrchestrator()
+        # Get session to retrieve domain
+        session = WorkflowState.get_session(request.session_id)
+        if not session:
+            raise ValueError(f"Session {request.session_id} not found")
+        
+        domain = session.get("domain", "legal_ai")
+        orchestrator = LegalAidOrchestrator(domain=domain)
         result = await orchestrator.refine_draft(
             request.session_id,
             request.feedback
@@ -191,7 +253,13 @@ async def finalize_legal_aid(request: FinalizeRequest) -> LegalAidResponse:
     try:
         logger.info(f"Finalizing workflow for session: {request.session_id}")
         
-        orchestrator = LegalAidOrchestrator()
+        # Get session to retrieve domain
+        session = WorkflowState.get_session(request.session_id)
+        if not session:
+            raise ValueError(f"Session {request.session_id} not found")
+        
+        domain = session.get("domain", "legal_ai")
+        orchestrator = LegalAidOrchestrator(domain=domain)
         result = await orchestrator.finalize_workflow(request.session_id)
         
         logger.info(f"Workflow finalized for session: {request.session_id}")
@@ -233,3 +301,56 @@ async def get_workflow_status(session_id: str) -> WorkflowStatusResponse:
         message=f"Workflow is at stage: {session['stage']}",
         data={"created_at": session["created_at"], "updated_at": session["updated_at"]}
     )
+
+
+# ===== TRANSCRIPTION ENDPOINTS (Polling Fallback) =====
+
+@router.get(
+    "/transcriptions",
+    status_code=status.HTTP_200_OK,
+    tags=["transcription"],
+    summary="Get Recent Transcriptions",
+    description="Polling endpoint for transcriptions (WebSocket fallback)"
+)
+async def get_transcriptions() -> Dict[str, List[Dict]]:
+    """
+    Get recent transcriptions as polling fallback for WebSocket.
+    
+    Returns:
+        Dictionary with list of recent transcriptions
+    """
+    transcriptions = TranscriptionState.get_recent_transcriptions()
+    return {
+        "transcriptions": transcriptions,
+        "count": len(transcriptions)
+    }
+
+
+@router.delete(
+    "/transcriptions",
+    status_code=status.HTTP_200_OK,
+    tags=["transcription"],
+    summary="Clear Transcriptions",
+    description="Clear the transcription queue"
+)
+async def clear_transcriptions() -> Dict[str, str]:
+    """Clear all transcriptions from the queue."""
+    TranscriptionState.clear_transcriptions()
+    return {"status": "cleared", "message": "Transcription queue cleared"}
+
+
+@router.get(
+    "/transcription-stats",
+    status_code=status.HTTP_200_OK,
+    tags=["transcription"],
+    summary="Get Transcription Statistics",
+    description="Get current transcription service statistics"
+)
+async def get_transcription_stats() -> Dict:
+    """
+    Get transcription service statistics.
+    
+    Returns:
+        Dictionary with service statistics
+    """
+    return TranscriptionState.get_stats()

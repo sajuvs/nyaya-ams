@@ -8,65 +8,56 @@ from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
 
 class ExpertReviewerAgent:
     """
-    Senior Advocate with 20 plus years experience.
+    Expert Reviewer Agent with dynamic domain-specific prompts.
     
-    Audits legal drafts for "Zero-Error" compliance with jurisdiction,
-    statutes, and tone requirements.
+    Can be configured for different domains (legal, product comparison, etc.)
+    Requires a system_prompt to be provided - no default prompt.
     """
     
-    SYSTEM_PROMPT = """You are a Senior Advocate of the Kerala High Court.
-Your goal is to audit legal drafts for "Zero-Error" compliance.
-
-**AUDIT CRITERIA:**
-1. JURISDICTION: Verify if the case is directed to the correct District Court or appropriate forum.
-2. STATUTES: Ensure no repealed laws are used (e.g., IPC must be replaced with BNS for criminal matters).
-3. CITATIONS: Verify that all cited sections and acts are accurate and applicable.
-4. TONE: Ensure the draft is respectful yet firm, following Indian legal conventions.
-5. STRUCTURE: Check that the petition follows proper Indian legal format.
-6. COMPLETENESS: Ensure all necessary elements are present (To, From, Subject, Body, Prayer).
-
-**OUTPUT (JSON):**
-{{
-  "is_approved": boolean,
-  "feedback": "Specific correction notes if false, empty string if approved",
-  "reasoning": "Internal thought process explaining the decision",
-  "jurisdiction_check": "Pass/Fail with explanation",
-  "statute_check": "Pass/Fail with explanation",
-  "tone_check": "Pass/Fail with explanation"
-}}
-
-**IMPORTANT:** Be thorough but fair. Only reject if there are genuine legal or structural issues."""
-    
-    def __init__(self, model_name: str = "gpt-4.1", temperature: float = 0.0):
+    def __init__(self, model_name: str = "gpt-4.1", temperature: float = 0.0, system_prompt: str = None):
         """
         Initialize the Expert Reviewer Agent.
         
         Args:
             model_name: The LLM model to use for review
             temperature: Controls consistency (0 for deterministic reviews)
+            system_prompt: Domain-specific system prompt (REQUIRED)
+            
+        Raises:
+            ValueError: If system_prompt is not provided
         """
+        if not system_prompt:
+            raise ValueError(
+                "ExpertReviewerAgent requires a system_prompt. "
+                "Load a domain configuration and pass the reviewer_prompt."
+            )
+        
         self.llm = ChatOpenAI(model=model_name, temperature=temperature)
         self.parser = JsonOutputParser()
+        self.system_prompt = system_prompt
         
+        # Domain-agnostic human message template
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", self.SYSTEM_PROMPT),
+            ("system", self.system_prompt),
             ("human", """Research Findings:
 {research_findings}
 
-Legal Draft to Review:
+Draft to Review:
 {draft}
 
 Provide your audit results in JSON format.""")
         ])
         
         self.chain = self.prompt | self.llm | self.parser
-        
+    
+    @traceable(name="expert_legal_review")
     async def review(self, draft: str, research_findings: Dict[str, Any]) -> Dict[str, Any]:
         """
         Review a legal draft for compliance and accuracy.
