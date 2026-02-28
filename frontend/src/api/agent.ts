@@ -1,11 +1,7 @@
 import type { Agent } from '../utils/dummyData'
 
 // API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
-
-// Debug: Log the API URL being used
-console.log('API_BASE_URL:', API_BASE_URL)
-console.log('import.meta.env.VITE_API_URL:', import.meta.env.VITE_API_URL)
+const API_BASE_URL = 'http://localhost:8000/api/v1'
 
 // Type definitions matching backend schemas
 export interface Domain {
@@ -118,7 +114,7 @@ export async function startLegalAid(grievance: string, domain: string = 'legal_a
   const response = await fetch(`${API_BASE_URL}/start-legal-aid`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grievance, domain })
+    body: JSON.stringify({ grievance, is_approved: true })
   })
   return handleResponse(response)
 }
@@ -126,14 +122,16 @@ export async function startLegalAid(grievance: string, domain: string = 'legal_a
 // Approve Research Findings
 export async function approveResearch(
   sessionId: string,
-  approvedResearch: ResearchFindings
+  approvedResearch: ResearchFindings,
+  isApproved: boolean
 ): Promise<ApproveResearchResponse> {
   const response = await fetch(`${API_BASE_URL}/approve-research`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       session_id: sessionId,
-      approved_research: approvedResearch
+      approved_research: approvedResearch,
+      is_approved: isApproved
     })
   })
   return handleResponse(response)
@@ -177,30 +175,54 @@ export async function runAgent(
   complaint: string,
   _files: File[],
   onStepComplete: (agentId: string) => void,
-  domain: string = 'legal_ai'
+  onAwaitApproval?: (agentId: string, output: ResearchFindings | string) => Promise<boolean>
 ): Promise<string> {
   try {
-    // Step 1: Start workflow (Research phase)
-    onStepComplete('intake')
-    const startResponse = await startLegalAid(complaint, domain)
-    
-    onStepComplete('legal-researcher')
-    
-    // Step 2: Auto-approve research (for backward compatibility)
-    await approveResearch(
-      startResponse.session_id,
-      startResponse.research_findings
-    )
-    
-    onStepComplete('viability-assessor')
-    
-    // Step 3: Auto-finalize (for backward compatibility)
-    const finalResponse = await finalizeLegalAid(startResponse.session_id)
-    
-    onStepComplete('action-planner')
-    
-    // Return the final document
-    return finalResponse.final_document
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // Step 1: Legal Researcher
+      const startResponse = await startLegalAid(complaint)
+
+      // HITL: pause for legal-researcher approval
+      if (onAwaitApproval) {
+        const approved = await onAwaitApproval('legal-researcher', startResponse.research_findings)
+        if (!approved) {
+          // reject research — loop back to re-run from scratch
+          await approveResearch(startResponse.session_id, startResponse.research_findings, false)
+          continue
+        }
+      }
+      onStepComplete('legal-researcher')
+
+      // Step 2: Document Drafter
+      let currentDraft = await approveResearch(
+        startResponse.session_id,
+        startResponse.research_findings,
+        true
+      )
+      onStepComplete('document-drafter')
+
+      // HITL loop: viability-assessor can reject and request refinement
+      while (true) {
+        if (onAwaitApproval) {
+          const approved = await onAwaitApproval('viability-assessor', currentDraft.draft)
+          if (!approved) {
+            // Refine draft with empty feedback, stay in same session
+            const refined = await reviewDraft(startResponse.session_id, 'Please revise and improve the draft.')
+            onStepComplete('document-drafter')
+            currentDraft = refined
+            continue
+          }
+        }
+        break
+      }
+
+      // Step 3: Expert Reviewer via finalize
+      const finalResponse = await finalizeLegalAid(startResponse.session_id)
+      onStepComplete('viability-assessor')
+
+      return finalResponse.final_document || currentDraft.draft
+    }
   } catch (error) {
     if (error instanceof APIError) {
       throw new Error(`API Error (${error.status}): ${error.message}`)

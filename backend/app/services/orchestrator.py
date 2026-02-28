@@ -218,6 +218,7 @@ class LegalAidOrchestrator:
             "stage": "awaiting_research_approval",
             "research_findings": research_findings,
             "agent_traces": trace.to_dict(),
+            "is_approved": None,
             "message": "Please review and approve the research findings to continue."
         }
     
@@ -281,6 +282,7 @@ class LegalAidOrchestrator:
             "iteration": 1,
             "max_iterations": self.MAX_ITERATIONS,
             "remaining_iterations": self.MAX_ITERATIONS - 1,
+            "is_approved": True,
             "message": f"Please review the draft (Iteration 1/{self.MAX_ITERATIONS}). "
                       f"Approve or provide feedback for refinement ({self.MAX_ITERATIONS - 1} refinements remaining)."
         }
@@ -415,6 +417,7 @@ class LegalAidOrchestrator:
             "agent_traces": trace.to_dict(),
             "iterations": session.get("iteration", 1),
             "status": "approved_by_human",
+            "is_approved": True,
             "timestamp": datetime.utcnow().isoformat()
         }
         

@@ -21,6 +21,10 @@ class LegalAidRequest(BaseModel):
         default="",
         description="Additional legal context from vector store (optional)"
     )
+    is_approved: Optional[bool] = Field(
+        default=True,
+        description="Human approval flag. True = start research, False = re-run research"
+    )
     
     class Config:
         json_schema_extra = {
@@ -101,6 +105,7 @@ class ResearchApprovalRequest(BaseModel):
     
     session_id: str = Field(..., description="Workflow session ID")
     approved_research: Dict[str, Any] = Field(..., description="Human-approved research findings")
+    is_approved: bool = Field(..., description="True to proceed to drafting, False to re-run research")
 
 
 class DraftReviewRequest(BaseModel):

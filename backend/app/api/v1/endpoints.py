@@ -126,22 +126,14 @@ async def health_check():
     description="Start workflow and return research findings for human review"
 )
 async def start_legal_aid(request: LegalAidRequest) -> Dict:
-    """Start workflow with research phase."""
+    """Start workflow with research phase. If is_approved=False, re-runs research."""
     try:
-        logger.info(f"Starting HITL workflow for domain '{request.domain}': {request.grievance[:100]}...")
-        
-        orchestrator = LegalAidOrchestrator(domain=request.domain)
+        logger.info(f"Starting HITL workflow: {request.grievance[:100]}...")
+        orchestrator = LegalAidOrchestrator()
         result = await orchestrator.start_research(request.grievance)
-        
+        result["is_approved"] = request.is_approved
         logger.info(f"Research complete. Session: {result['session_id']}")
         return result
-        
-    except FileNotFoundError as e:
-        logger.error(f"Domain not found: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
     except Exception as e:
         logger.error(f"Error starting workflow: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -153,39 +145,47 @@ async def start_legal_aid(request: LegalAidRequest) -> Dict:
 @router.post(
     "/approve-research",
     status_code=status.HTTP_200_OK,
-    summary="Approve Research Findings",
-    description="Approve/edit research and continue to drafting phase"
+    summary="Approve or Reject Research Findings",
+    description="is_approved=True proceeds to drafting, is_approved=False re-runs research"
 )
 async def approve_research(request: ResearchApprovalRequest) -> Dict:
-    """Continue workflow with approved research."""
+    """Continue or re-run based on human approval."""
     try:
-        logger.info(f"Research approved for session: {request.session_id}")
-        
-        # Get session to retrieve domain
-        session = WorkflowState.get_session(request.session_id)
-        if not session:
-            raise ValueError(f"Session {request.session_id} not found")
-        
-        domain = session.get("domain", "legal_ai")
-        orchestrator = LegalAidOrchestrator(domain=domain)
-        result = await orchestrator.continue_with_draft(
-            request.session_id,
-            request.approved_research
-        )
-        
-        logger.info(f"Draft generated for session: {request.session_id}")
+        orchestrator = LegalAidOrchestrator()
+        if request.is_approved:
+            logger.info(f"Research approved for session: {request.session_id}")
+            result = await orchestrator.continue_with_draft(
+                request.session_id,
+                request.approved_research
+            )
+            result["is_approved"] = True
+        else:
+            logger.info(f"Research rejected, re-running for session: {request.session_id}")
+            session = WorkflowState.get_session(request.session_id)
+            if not session:
+                raise ValueError(f"Session {request.session_id} not found")
+            # Reset stage and re-run research
+            WorkflowState.update_session(request.session_id, {"stage": "awaiting_research_approval"})
+            result = await orchestrator.start_research(session["grievance"])
+            new_session_id = result["session_id"]
+            # Copy new session data into original session, delete the new one
+            new_session = WorkflowState.get_session(new_session_id)
+            if new_session:
+                WorkflowState.update_session(request.session_id, {
+                    k: v for k, v in new_session.items() if k != "session_id"
+                })
+                WorkflowState.delete_session(new_session_id)
+            result["session_id"] = request.session_id
+            result["is_approved"] = False
+        logger.info(f"Research action complete for session: {request.session_id}")
         return result
-        
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"Error approving research: {str(e)}", exc_info=True)
+        logger.error(f"Error in approve_research: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to approve research: {str(e)}"
+            detail=f"Failed to process research approval: {str(e)}"
         )
 
 

@@ -1,4 +1,4 @@
-import ReactMarkdown from 'react-markdown'
+import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
@@ -34,7 +34,7 @@ export default function MarkdownOutput({ content }: Props) {
         [&_li]:text-[#c0c0e0]
         [&_p]:text-[#c0c0e0]
       ">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
       </div>
     </div>
   )
