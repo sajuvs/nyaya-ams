@@ -41,14 +41,7 @@ export default function App() {
           </div>
         </Link>
 
-        <div className="flex items-center gap-6">
-          <NavLink to="/" active={location.pathname === '/'}>
-            Agent
-          </NavLink>
-          <NavLink to="/prompts" active={location.pathname === '/prompts'}>
-            System Prompts
-          </NavLink>
-        </div>
+
       </nav>
 
       <main ref={mainRef} className="flex-1">
