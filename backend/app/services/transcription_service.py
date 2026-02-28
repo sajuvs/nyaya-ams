@@ -31,12 +31,13 @@ class TranscriptionService:
         return cls._instance
     
     def __init__(self):
-        """Initialize the transcription service."""
         if self._client is None:
-            if not config.SARVAM_API_KEY:
+            # Re-read env in case dotenv was loaded after module import
+            api_key = os.environ.get("SARVAM_API_KEY", "") or config.SARVAM_API_KEY
+            if not api_key:
                 logger.warning("SARVAM_API_KEY not set. Transcription will not work.")
             else:
-                self._client = AsyncSarvamAI(api_subscription_key=config.SARVAM_API_KEY)
+                self.__class__._client = AsyncSarvamAI(api_subscription_key=api_key)
                 logger.info("Sarvam AI client initialized")
     
     def _create_silence_base64(self) -> str:
