@@ -178,15 +178,15 @@ export async function runAgent(
   _files: File[],
   onStepComplete: (agentId: string) => void,
   onAwaitApproval?: (agentId: string, output: ResearchFindings | string) => Promise<boolean>,
+  domain: string = 'legal_ai',
+  onSetRunning?: (agentId: string) => void,
   onTranslation?: (wasTranslated: boolean, originalText?: string) => void
 ): Promise<string> {
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      // Step 1: Legal Researcher (with automatic translation)
-      const startResponse = await startLegalAid(complaint)
-      
-      // Notify if translation occurred
+      const startResponse = await startLegalAid(complaint, domain)
+
       if (onTranslation && startResponse.was_translated) {
         onTranslation(startResponse.was_translated, startResponse.original_text)
       }
@@ -195,7 +195,6 @@ export async function runAgent(
       if (onAwaitApproval) {
         const approved = await onAwaitApproval('legal-researcher', startResponse.research_findings)
         if (!approved) {
-          // reject research — loop back to re-run from scratch
           await approveResearch(startResponse.session_id, startResponse.research_findings, false)
           continue
         }
@@ -210,15 +209,17 @@ export async function runAgent(
         true
       )
       onStepComplete('document-drafter')
+      onSetRunning?.('viability-assessor')
 
       // HITL loop: viability-assessor can reject and request refinement
       while (true) {
         if (onAwaitApproval) {
           const approved = await onAwaitApproval('viability-assessor', currentDraft.draft)
           if (!approved) {
-            // Refine draft with empty feedback, stay in same session
+            onSetRunning?.('document-drafter')
             const refined = await reviewDraft(startResponse.session_id, 'Please revise and improve the draft.')
             onStepComplete('document-drafter')
+            onSetRunning?.('viability-assessor')
             currentDraft = refined
             continue
           }
@@ -226,7 +227,8 @@ export async function runAgent(
         break
       }
 
-      // Step 3: Expert Reviewer via finalize
+      // Step 3: Finalize
+      onSetRunning?.('viability-assessor')
       const finalResponse = await finalizeLegalAid(startResponse.session_id)
       onStepComplete('viability-assessor')
 

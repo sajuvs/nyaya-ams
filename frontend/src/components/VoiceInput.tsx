@@ -53,7 +53,10 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
   const isRecording = state === 'recording'
   const isTranscribing = state === 'transcribing'
 
-  // Initialize WebSocket connection
+  const onTranscriptRef = useRef(onTranscript)
+  useEffect(() => { onTranscriptRef.current = onTranscript }, [onTranscript])
+
+  // Initialize WebSocket connection — runs once only
   useEffect(() => {
     const socket = io('http://localhost:8000', {
       path: '/socket.io',
@@ -72,13 +75,12 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
 
     socket.on('transcription_result', (data: TranscriptionResult) => {
       console.log('📥 Received transcription:', data)
-      if (data && data.text && data.text.trim()) {
-        // Accumulate transcriptions with space separator
+      if (data?.text?.trim()) {
         const newText = data.text.trim()
-        accumulatedTranscriptRef.current = accumulatedTranscriptRef.current 
+        accumulatedTranscriptRef.current = accumulatedTranscriptRef.current
           ? `${accumulatedTranscriptRef.current} ${newText}`
           : newText
-        onTranscript(accumulatedTranscriptRef.current)
+        onTranscriptRef.current(accumulatedTranscriptRef.current)
       }
     })
 
@@ -87,11 +89,8 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
     })
 
     socketRef.current = socket
-
-    return () => {
-      socket.disconnect()
-    }
-  }, [onTranscript])
+    return () => { socket.disconnect() }
+  }, [])
 
   useEffect(() => {
     if (transcriptBoxRef.current) {
@@ -235,11 +234,6 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
 
   const startRecording = async () => {
     try {
-      if (!isConnected) {
-        console.error('❌ Not connected to transcription service')
-        return
-      }
-
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -391,7 +385,7 @@ export default function VoiceInput({ onTranscript, transcript }: Props) {
           />
           <button
             onClick={handleClick}
-            disabled={isTranscribing || !isConnected}
+            disabled={isTranscribing}
             className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all duration-500 cursor-pointer border-2 disabled:cursor-not-allowed disabled:opacity-50 ${
               isRecording
                 ? 'border-[#ff006e] bg-[#ff006e15] shadow-[0_0_40px_#ff006e66]'

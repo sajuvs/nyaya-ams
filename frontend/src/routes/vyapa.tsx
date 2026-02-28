@@ -37,21 +37,25 @@ export default function VyapaPage() {
       const result = await runAgent(
         grievance, [],
         (agentId) => {
-          // map backend agent ids to vyapa ids
           const map: Record<string, string> = {
             'legal-researcher': 'researcher',
             'document-drafter': 'drafter',
             'viability-assessor': 'reviewer',
           }
           const vid = map[agentId]
-          if (!vid) return
-          setStatus(vid, 'done')
-          const nextMap: Record<string, string> = { researcher: 'drafter', drafter: 'reviewer' }
-          const next = nextMap[vid]
-          if (next) setStatus(next, 'running')
+          if (vid) setStatus(vid, 'done')
         },
-        undefined, // no HITL
-        'product_comparison'
+        undefined,
+        'product_comparison',
+        (agentId) => {
+          const map: Record<string, string> = {
+            'legal-researcher': 'researcher',
+            'document-drafter': 'drafter',
+            'viability-assessor': 'reviewer',
+          }
+          const vid = map[agentId]
+          if (vid) setStatus(vid, 'running')
+        }
       )
       setStatus('reviewer', 'done')
       setOutput(result)
@@ -134,11 +138,11 @@ export default function VyapaPage() {
           </div>
 
           {/* Agent stepper */}
-          <div className="w-full max-w-2xl flex items-center gap-0">
+          <div className="w-full max-w-2xl flex items-start gap-0">
             {AGENTS.map((agent, i) => {
               const status = agentStatuses[agent.id] ?? 'pending'
               return (
-                <div key={agent.id} className="flex items-center flex-1">
+                <div key={agent.id} className="flex items-start flex-1">
                   <div className="flex flex-col items-center flex-1">
                     {/* Circle */}
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all duration-500 ${
@@ -163,15 +167,14 @@ export default function VyapaPage() {
                     <p className={`text-xs mt-2 tracking-widest uppercase transition-colors duration-300 ${
                       status === 'pending' ? 'text-gray-300' : 'text-gray-700'
                     }`}>{agent.label}</p>
-                    {status === 'running' && (
-                      <p className="text-xs text-gray-400 mt-1 text-center max-w-[140px] leading-relaxed">{agent.desc}</p>
-                    )}
                   </div>
-                  {/* Connector line */}
+                  {/* Connector line — aligned to circle centre (top 20px = half of 40px circle) */}
                   {i < AGENTS.length - 1 && (
-                    <div className={`h-px flex-1 mx-2 transition-colors duration-500 ${
-                      (agentStatuses[AGENTS[i+1].id] ?? 'pending') !== 'pending' ? 'bg-gray-900' : 'bg-gray-200'
-                    }`} />
+                    <div className="flex-none w-8 mt-5">
+                      <div className={`h-px transition-colors duration-500 ${
+                        (agentStatuses[AGENTS[i+1].id] ?? 'pending') !== 'pending' ? 'bg-gray-900' : 'bg-gray-200'
+                      }`} />
+                    </div>
                   )}
                 </div>
               )

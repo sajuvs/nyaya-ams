@@ -9,8 +9,8 @@ import logging
 import base64
 import tempfile
 import os
+import wave
 from typing import Optional
-from pydub import AudioSegment
 from sarvamai import AsyncSarvamAI
 
 from ..config.transcription_config import config
@@ -40,34 +40,21 @@ class TranscriptionService:
                 logger.info("Sarvam AI client initialized")
     
     def _create_silence_base64(self) -> str:
-        """
-        Create 1 second of silence audio for Sarvam API.
-        
-        Sarvam API requires silence to be sent after audio data
-        to signal end of speech segment.
-        
-        Returns:
-            Base64 encoded WAV file with 1 second of silence
-        """
         try:
-            silence = AudioSegment.silent(
-                duration=config.SILENCE_DURATION_MS,
-                frame_rate=config.AUDIO_SAMPLE_RATE
-            )
-            silence = silence.set_channels(config.AUDIO_CHANNELS)
-            
+            num_samples = config.AUDIO_SAMPLE_RATE * config.SILENCE_DURATION_MS // 1000
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                 tmp_path = tmp.name
-            
             try:
-                silence.export(tmp_path, format="wav")
+                with wave.open(tmp_path, 'w') as wf:
+                    wf.setnchannels(config.AUDIO_CHANNELS)
+                    wf.setsampwidth(2)
+                    wf.setframerate(config.AUDIO_SAMPLE_RATE)
+                    wf.writeframes(bytes(num_samples * 2))  # zero-filled bytes
                 with open(tmp_path, "rb") as f:
-                    silence_bytes = f.read()
-                    return base64.b64encode(silence_bytes).decode("utf-8")
+                    return base64.b64encode(f.read()).decode("utf-8")
             finally:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-                    
         except Exception as e:
             logger.error(f"Error creating silence audio: {e}")
             raise
@@ -146,34 +133,18 @@ class TranscriptionService:
             return ""
     
     def validate_audio_format(self, audio_base64: str) -> bool:
-        """
-        Validate that audio data is in correct format.
-        
-        Args:
-            audio_base64: Base64 encoded audio data
-            
-        Returns:
-            True if valid, False otherwise
-        """
         try:
             audio_bytes = base64.b64decode(audio_base64)
-            
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
-                temp_audio_path = temp_audio.name
-                temp_audio.write(audio_bytes)
-            
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_path = tmp.name
             try:
-                audio_segment = AudioSegment.from_wav(temp_audio_path)
-                logger.info(
-                    f"Audio validation: {len(audio_segment)}ms, "
-                    f"{audio_segment.frame_rate}Hz, "
-                    f"{audio_segment.channels} channels"
-                )
+                with wave.open(tmp_path, 'r') as wf:
+                    logger.info(f"Audio validation: {wf.getnframes()}frames, {wf.getframerate()}Hz, {wf.getnchannels()} channels")
                 return True
             finally:
-                if os.path.exists(temp_audio_path):
-                    os.unlink(temp_audio_path)
-                    
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
         except Exception as e:
             logger.error(f"Audio validation failed: {e}")
             return False

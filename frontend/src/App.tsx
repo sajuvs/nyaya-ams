@@ -1,4 +1,4 @@
-import { Outlet, Link, useLocation, useNavigate } from '@tanstack/react-router'
+import { Outlet, Link, useLocation } from '@tanstack/react-router'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { ScrollToPlugin } from 'gsap/ScrollToPlugin'
@@ -52,15 +52,14 @@ export default function App() {
         </Link>
 
         <div className="flex items-center gap-6">
-          <NavLink to="/" active={location.pathname === '/'}>
-            Agent
-          </NavLink>
-          <NavLink to="/prompts" active={location.pathname === '/prompts'}>
-            System Prompts
-          </NavLink>
-          <NavLink to="/transcript" active={location.pathname === '/transcript'}>
-            Transcript
-          </NavLink>
+          <Link
+            to="/vyapa"
+            className={`text-sm tracking-widest uppercase transition-all duration-300 no-underline ${
+              isVyapa ? 'text-gray-900 font-semibold' : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
+            }`}
+          >
+            Vyapa.AI
+          </Link>
         </div>
       </nav>
 
@@ -71,33 +70,3 @@ export default function App() {
   )
 }
 
-function NavLink({ to, active, children }: { to: string; active: boolean; children: React.ReactNode }) {
-  const navigate = useNavigate()
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (active) { e.preventDefault(); return }
-    const main = document.querySelector('main')
-    if (!main) return
-    e.preventDefault()
-    gsap.to(main, {
-      scale: 1.08,
-      opacity: 0,
-      filter: 'blur(8px)',
-      duration: 0.35,
-      ease: 'expo.in',
-      onComplete: () => { navigate({ to }) },
-    })
-  }
-
-  return (
-    <Link
-      to={to}
-      onClick={handleClick}
-      className={`text-sm tracking-widest uppercase transition-all duration-300 no-underline ${
-        active ? 'text-[#00f5ff] neon-cyan' : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
-      }`}
-    >
-      {children}
-    </Link>
-  )
-}

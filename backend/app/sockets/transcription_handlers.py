@@ -34,6 +34,7 @@ def register_transcription_handlers(sio):
         """
         logger.info(f"Client connected: {sid}")
         TranscriptionState.add_client(sid)
+        TranscriptionState.clear_processed_chunks()
         
         await sio.emit('status', {
             'message': 'Connected to transcription service',
@@ -136,7 +137,6 @@ async def _process_transcription(
         
         if transcription and transcription.strip():
             logger.info(f"SUCCESS - Transcription: '{transcription}'")
-            
             result_data = {
                 'text': transcription,
                 'timestamp': timestamp,
@@ -144,20 +144,13 @@ async def _process_transcription(
                 'chunkName': chunk_name,
                 'processedAt': datetime.utcnow().isoformat()
             }
-            
-            # Add to state for polling fallback
             TranscriptionState.add_transcription(result_data)
-            
-            # Emit to all active clients
-            active_clients = TranscriptionState.get_active_clients()
-            logger.info(f"Emitting to {len(active_clients)} active clients")
-            
-            for client_sid in active_clients:
-                try:
-                    await sio.emit('transcription_result', result_data, to=client_sid)
-                    logger.info(f"Emitted transcription to client {client_sid}")
-                except Exception as e:
-                    logger.error(f"Failed to emit to {client_sid}: {e}")
+            # Emit directly to the originating sid — don't loop active_clients
+            try:
+                await sio.emit('transcription_result', result_data, to=sid)
+                logger.info(f"Emitted transcription to {sid}")
+            except Exception as e:
+                logger.error(f"Failed to emit to {sid}: {e}")
         else:
             logger.warning(f"Empty transcription for chunk: {chunk_name}")
             await sio.emit('transcription_status', {

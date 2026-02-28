@@ -83,18 +83,14 @@ class TranscriptionState:
     
     @classmethod
     def mark_chunk_processed(cls, chunk_name: str):
-        """
-        Mark a chunk as processed.
-        
-        Args:
-            chunk_name: Unique identifier for the audio chunk
-        """
         cls._processed_chunks.add(chunk_name)
-        
-        # Prevent memory leak by limiting set size
         if len(cls._processed_chunks) > config.MAX_PROCESSED_CHUNKS:
-            logger.info("Processed chunks limit reached. Clearing old chunks.")
             cls._processed_chunks.clear()
+
+    @classmethod
+    def clear_processed_chunks(cls):
+        cls._processed_chunks.clear()
+        logger.info("Processed chunks cleared on new connection")
     
     @classmethod
     def get_stats(cls) -> Dict[str, Any]:

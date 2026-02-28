@@ -149,13 +149,15 @@ export default function AgentPage() {
           if (!approved) {
             setDetailAgent(null)
             setAgentOutputs((prev) => { const n = { ...prev }; delete n[agentId]; return n })
-            setSteps((prev) => prev.map((s) => {
-              if (s.agentId === agentId) return { ...s, status: 'pending' as const }
-              if (s.agentId === 'document-drafter') return { ...s, status: 'running' as const }
-              return s
-            }))
+            setSteps((prev) => prev.map((s) =>
+              s.agentId === agentId ? { ...s, status: 'pending' as const } : s
+            ))
           }
           return approved
+        },
+        'legal_ai',
+        (agentId) => {
+          setSteps((prev) => prev.map((s) => s.agentId === agentId ? { ...s, status: 'running' as const } : s))
         },
         (wasTranslated, originalText) => {
           if (wasTranslated) {

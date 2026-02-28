@@ -1,8 +1,7 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import App from './App'
 import AgentPage from './routes/index'
-import PromptsPage from './routes/prompts'
-import TranscriptPage from './routes/transcript'
+import VyapaPage from './routes/vyapa'
 
 const rootRoute = createRootRoute({ component: App })
 
@@ -12,19 +11,13 @@ const indexRoute = createRoute({
   component: AgentPage,
 })
 
-const promptsRoute = createRoute({
+const vyapaRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/prompts',
-  component: PromptsPage,
+  path: '/vyapa',
+  component: VyapaPage,
 })
 
-const transcriptRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/transcript',
-  component: TranscriptPage,
-})
-
-const routeTree = rootRoute.addChildren([indexRoute, promptsRoute, transcriptRoute])
+const routeTree = rootRoute.addChildren([indexRoute, vyapaRoute])
 
 export const router = createRouter({ routeTree })
 

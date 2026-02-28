@@ -3,15 +3,19 @@ name = "nyaya-ams"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "audioop-lts",
     "faiss-cpu>=1.13.2",
     "fastapi>=0.133.1",
     "langchain-community>=0.4.1",
     "langchain-groq>=1.1.2",
     "langchain-openai>=1.1.10",
+    "pydub>=0.25.1",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "python-dotenv>=1.2.1",
+    "python-socketio>=5.9.0",
+    "sarvamai>=0.1.0",
     "sentence-transformers>=5.2.3",
     "tavily-python>=0.7.22",
-    "uvicorn>=0.41.0",
+    "uvicorn[standard]>=0.32.0",
 ]

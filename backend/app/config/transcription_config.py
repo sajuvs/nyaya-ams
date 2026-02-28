@@ -1,7 +1,10 @@
 """Configuration for audio transcription service."""
 
 import os
+from dotenv import load_dotenv
 from typing import Optional
+
+load_dotenv()
 
 class TranscriptionConfig:
     """Configuration for Sarvam AI transcription service."""

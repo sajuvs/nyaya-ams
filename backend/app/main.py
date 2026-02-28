@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 # Create SocketIO server
 sio = socketio.AsyncServer(
     async_mode='asgi',
-    cors_allowed_origins='*',
+    cors_allowed_origins=['http://localhost:5173', 'http://127.0.0.1:5173'],
+    transports=['websocket', 'polling'],
     logger=True,
     engineio_logger=True
 )
@@ -46,13 +47,6 @@ app.include_router(router)
 # Register SocketIO handlers
 register_transcription_handlers(sio)
 
-# Create ASGI application with SocketIO
-socket_app = socketio.ASGIApp(
-    sio,
-    app,
-    socketio_path='socket.io'
-)
-
 @app.get("/")
 async def root():
     return {
@@ -67,11 +61,8 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Extended health check including transcription service."""
     from app.services.transcription_state import TranscriptionState
-    
     stats = TranscriptionState.get_stats()
-    
     return {
         "status": "healthy",
         "service": "Nyaya-Flow Legal Aid API",
@@ -84,5 +75,8 @@ async def health_check():
             "websocket_path": "/socket.io"
         }
     }
+
+# Wrap with SocketIO ASGI — uvicorn must point to this
+app = socketio.ASGIApp(sio, app, socketio_path='socket.io')
 
 logger.info("Nyaya-Flow application initialized with transcription support")
