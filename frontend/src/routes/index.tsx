@@ -137,16 +137,7 @@ export default function AgentPage() {
         complaintText,
         attachedFiles,
         (agentId) => {
-          setSteps((prev) => {
-            const updated = prev.map((s) => s.agentId === agentId ? { ...s, status: 'done' as const } : s)
-            const nextIdx = AGENTS.findIndex((a) => a.id === agentId) + 1
-            const next = AGENTS[nextIdx]
-            // Only auto-advance to running if the next agent doesn't require HITL
-            if (next && !next.requiresApproval) {
-              return updated.map((s) => s.agentId === next.id ? { ...s, status: 'running' as const } : s)
-            }
-            return updated
-          })
+          setSteps((prev) => prev.map((s) => s.agentId === agentId ? { ...s, status: 'done' as const } : s))
         },
         async (agentId, output) => {
           setAgentOutputs((prev) => ({ ...prev, [agentId]: output }))
@@ -164,6 +155,10 @@ export default function AgentPage() {
             }))
           }
           return approved
+        },
+        'legal_ai',
+        (agentId) => {
+          setSteps((prev) => prev.map((s) => s.agentId === agentId ? { ...s, status: 'running' as const } : s))
         }
       )
       setOutput(result)

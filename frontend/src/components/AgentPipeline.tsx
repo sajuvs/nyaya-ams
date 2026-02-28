@@ -51,7 +51,7 @@ export default function AgentPipeline({ steps, onApprove, onReject, agentOutputs
             key={agent.id}
             ref={(el) => { itemRefs.current[i] = el }}
             className="border border-[#1a1a2e] rounded-xl bg-[#0f0f1a] overflow-hidden transition-all duration-500"
-            style={{ padding: isActive ? '2rem' : '1.25rem' }}
+            style={{ padding: '1.25rem' }}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

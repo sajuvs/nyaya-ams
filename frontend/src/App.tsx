@@ -30,18 +30,34 @@ export default function App() {
     )
   }, [location.pathname])
 
+  const isVyapa = location.pathname === '/vyapa'
+
   return (
-    <div className="min-h-screen flex flex-col">
-      <nav className="relative z-30 flex items-center justify-between px-8 py-4 border-b border-[#1a1a2e] bg-[#0a0a0f]">
+    <div className={`min-h-screen flex flex-col transition-colors duration-500 ${isVyapa ? 'bg-white' : 'bg-[#0a0a0f]'}`}>
+      <nav className={`relative z-30 flex items-center justify-between px-8 py-4 border-b transition-colors duration-500 ${
+        isVyapa ? 'border-gray-200 bg-white' : 'border-[#1a1a2e] bg-[#0a0a0f]'
+      }`}>
         <Link to="/" className="flex items-center gap-3 no-underline">
           <div className="relative">
-            <span className="text-2xl font-bold tracking-tight neon-cyan text-[#00f5ff]">ന്യായ</span>
-            <span className="text-2xl font-bold text-[#e0e0ff]">-flow</span>
-            <div className="absolute -bottom-1 left-0 w-full h-px bg-gradient-to-r from-[#00f5ff] to-[#bf00ff]" />
+            <span className={`text-2xl font-bold tracking-tight transition-colors duration-500 ${
+              isVyapa ? 'text-gray-400' : 'neon-cyan text-[#00f5ff]'
+            }`}>ന്യായ</span>
+            <span className={`text-2xl font-bold transition-colors duration-500 ${
+              isVyapa ? 'text-gray-300' : 'text-[#e0e0ff]'
+            }`}>-flow</span>
+            <div className={`absolute -bottom-1 left-0 w-full h-px bg-gradient-to-r transition-opacity duration-500 ${
+              isVyapa ? 'from-gray-300 to-gray-200' : 'from-[#00f5ff] to-[#bf00ff]'
+            }`} />
           </div>
         </Link>
 
-
+        <NavLink to="/vyapa" active={isVyapa}>
+          <span className={`text-sm font-semibold tracking-tight transition-colors duration-500 ${
+            isVyapa ? 'text-gray-900' : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
+          }`}>
+            Vyapa<span className={isVyapa ? 'text-gray-400' : 'text-[#4a4a6a]'}>.AI</span>
+          </span>
+        </NavLink>
       </nav>
 
       <main ref={mainRef} className="flex-1">

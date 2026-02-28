@@ -114,7 +114,7 @@ export async function startLegalAid(grievance: string, domain: string = 'legal_a
   const response = await fetch(`${API_BASE_URL}/start-legal-aid`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grievance, is_approved: true })
+    body: JSON.stringify({ grievance, domain, is_approved: true })
   })
   return handleResponse(response)
 }
@@ -175,13 +175,14 @@ export async function runAgent(
   complaint: string,
   _files: File[],
   onStepComplete: (agentId: string) => void,
-  onAwaitApproval?: (agentId: string, output: ResearchFindings | string) => Promise<boolean>
+  onAwaitApproval?: (agentId: string, output: ResearchFindings | string) => Promise<boolean>,
+  domain: string = 'legal_ai',
+  onSetRunning?: (agentId: string) => void
 ): Promise<string> {
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      // Step 1: Legal Researcher
-      const startResponse = await startLegalAid(complaint)
+      const startResponse = await startLegalAid(complaint, domain)
 
       // HITL: pause for legal-researcher approval
       if (onAwaitApproval) {
@@ -193,6 +194,7 @@ export async function runAgent(
         }
       }
       onStepComplete('legal-researcher')
+      onSetRunning?.('document-drafter')
 
       // Step 2: Document Drafter
       let currentDraft = await approveResearch(
