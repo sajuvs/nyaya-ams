@@ -18,7 +18,7 @@ export const AGENTS: Agent[] = [
     id: 'legal-researcher',
     name: 'Legal Researcher',
     role: 'Identifies applicable Indian laws and sections',
-    runningDescription: 'Scanning Indian statutes, IPC sections, Consumer Protection Act, and Kerala High Court precedents relevant to your complaint…',
+    runningDescription: 'Stripping personal identifiers, cross-referencing Kerala legal archives and government statutes, surfacing applicable BNS sections, Consumer Protection Act provisions, and High Court precedents…',
     requiresApproval: true,
     systemPrompt: `You are an expert in Indian law with deep knowledge of IPC, CrPC, Consumer Protection Act, RTI Act, IT Act, and other central/state legislation.
 
@@ -34,7 +34,7 @@ Always cite specific section numbers.`,
     id: 'document-drafter',
     name: 'Document Drafter',
     role: 'Generates a structured legal petition',
-    runningDescription: 'Composing a formal legal petition based on research findings, following Indian court formatting standards and Kerala jurisdiction guidelines…',
+    runningDescription: 'Weaving research findings into a court-ready petition — structuring the To, From, Prayer, and Relief sections with precise legal language and Kerala jurisdiction formatting…',
     systemPrompt: `You are a legal document specialist. Given research findings, draft a formal legal petition following Indian court standards.
 
 1. Use proper legal language and formatting
@@ -47,7 +47,7 @@ Always cite specific section numbers.`,
     id: 'viability-assessor',
     name: 'Viability Assessor',
     role: 'Audits the draft and evaluates case strength',
-    runningDescription: 'Reviewing the drafted petition for legal accuracy, assessing case viability, and verifying Kerala-specific jurisdictional compliance…',
+    runningDescription: 'Reading through the petition line by line — auditing jurisdiction, cross-checking every cited statute is current, and reviewing the structure and tone against Kerala High Court standards…',
     requiresApproval: true,
     systemPrompt: `You are a senior Indian advocate with 20 years of litigation experience. Given a complaint and the applicable laws, assess:
 

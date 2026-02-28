@@ -19,6 +19,7 @@ from src.search import RAGSearch
 from tools.tavily_tool import create_tavily_search_tool, TavilySearchConfig
 from .workflow_state import WorkflowState
 from ..utils.pii_redactor import pii_redactor
+from config.domain_loader import DomainLoader
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,7 @@ class LegalAidOrchestrator:
         redacted_grievance, redaction_map = pii_redactor.redact(grievance)
         
         session_id = WorkflowState.create_session(grievance)
+        WorkflowState.update_session(session_id, {"domain": self.domain})
         trace = AgentTrace()
         
         trace.add(

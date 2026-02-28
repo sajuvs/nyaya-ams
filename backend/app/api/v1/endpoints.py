@@ -129,7 +129,8 @@ async def start_legal_aid(request: LegalAidRequest) -> Dict:
     """Start workflow with research phase. If is_approved=False, re-runs research."""
     try:
         logger.info(f"Starting HITL workflow: {request.grievance[:100]}...")
-        orchestrator = LegalAidOrchestrator()
+        domain = getattr(request, 'domain', 'legal_ai') or 'legal_ai'
+        orchestrator = LegalAidOrchestrator(domain=domain)
         result = await orchestrator.start_research(request.grievance)
         result["is_approved"] = request.is_approved
         logger.info(f"Research complete. Session: {result['session_id']}")
@@ -151,7 +152,11 @@ async def start_legal_aid(request: LegalAidRequest) -> Dict:
 async def approve_research(request: ResearchApprovalRequest) -> Dict:
     """Continue or re-run based on human approval."""
     try:
-        orchestrator = LegalAidOrchestrator()
+        session = WorkflowState.get_session(request.session_id)
+        if not session:
+            raise ValueError(f"Session {request.session_id} not found")
+        domain = session.get("domain", "legal_ai")
+        orchestrator = LegalAidOrchestrator(domain=domain)
         if request.is_approved:
             logger.info(f"Research approved for session: {request.session_id}")
             result = await orchestrator.continue_with_draft(
@@ -161,10 +166,7 @@ async def approve_research(request: ResearchApprovalRequest) -> Dict:
             result["is_approved"] = True
         else:
             logger.info(f"Research rejected, re-running for session: {request.session_id}")
-            session = WorkflowState.get_session(request.session_id)
-            if not session:
-                raise ValueError(f"Session {request.session_id} not found")
-            # Reset stage and re-run research
+            # session already fetched above
             WorkflowState.update_session(request.session_id, {"stage": "awaiting_research_approval"})
             result = await orchestrator.start_research(session["grievance"])
             new_session_id = result["session_id"]
