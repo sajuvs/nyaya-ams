@@ -7,7 +7,7 @@ if __name__ == "__main__":
     
     docs = load_all_documents("docustore/pdf")
     store = FaissVectorStore("data/faiss_store")
-    #store.build_from_documents(docs)
+    # store.build_from_documents(docs)
     store.load()
     print(store.query("Order to pay compensation.", top_k=3))
     rag_search = RAGSearch()
