@@ -2,16 +2,20 @@ import { useRef, useEffect } from 'react'
 import gsap from 'gsap'
 import type { AgentStep } from '../utils/dummyData'
 import { AGENTS } from '../utils/dummyData'
+import type { ResearchFindings } from '../api/agent'
 
 interface Props {
   steps: AgentStep[]
   onApprove: (agentId: string) => void
   onReject: (agentId: string) => void
+  agentOutputs: Record<string, ResearchFindings | string>
+  onToggleDetail: (agentId: string) => void
 }
 
-export default function AgentPipeline({ steps, onApprove, onReject }: Props) {
+export default function AgentPipeline({ steps, onApprove, onReject, agentOutputs, onToggleDetail }: Props) {
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const prevStatuses = useRef<string[]>([])
+  const wrapperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     steps.forEach((step, i) => {
@@ -36,7 +40,7 @@ export default function AgentPipeline({ steps, onApprove, onReject }: Props) {
   }, [steps])
 
   return (
-    <div className="flex flex-col gap-3 w-full max-w-lg">
+    <div ref={wrapperRef} className="flex flex-col gap-4 w-full">
       {AGENTS.map((agent, i) => {
         const step = steps.find((s) => s.agentId === agent.id)
         const status = step?.status ?? 'pending'
@@ -47,7 +51,7 @@ export default function AgentPipeline({ steps, onApprove, onReject }: Props) {
             key={agent.id}
             ref={(el) => { itemRefs.current[i] = el }}
             className="border border-[#1a1a2e] rounded-xl bg-[#0f0f1a] overflow-hidden transition-all duration-500"
-            style={{ padding: isActive ? '1.5rem' : '1rem' }}
+            style={{ padding: isActive ? '2rem' : '1.25rem' }}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -62,11 +66,23 @@ export default function AgentPipeline({ steps, onApprove, onReject }: Props) {
                     )}
                   </span>
                   <p className={`font-semibold transition-all duration-300 ${
-                    isActive ? 'text-base text-[#e0e0ff]' : 'text-sm text-[#a0a0c0]'
+                    isActive ? 'text-lg text-[#e0e0ff]' : 'text-base text-[#a0a0c0]'
                   }`}>{agent.name}</p>
                 </div>
               </div>
               <StatusBadge status={status} />
+              {agentOutputs[agent.id] && (
+                <button
+                  onClick={() => onToggleDetail(agent.id)}
+                  className="ml-2 text-[#4a4a6a] hover:text-[#00f5ff] transition-colors cursor-pointer"
+                  title="Toggle details"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              )}
             </div>
 
             {/* Expanded content when active */}
@@ -74,7 +90,7 @@ export default function AgentPipeline({ steps, onApprove, onReject }: Props) {
               <div className="mt-4 pl-4 border-l border-[#1a1a2e]">
                 {status === 'running' && (
                   <>
-                    <p className="text-sm text-[#4a4a6a] leading-relaxed">{agent.runningDescription}</p>
+                    <p className="text-base text-[#4a4a6a] leading-relaxed">{agent.runningDescription}</p>
                     <div className="mt-3 flex gap-1.5 items-center">
                       {[0, 1, 2, 3, 4].map((d) => (
                         <span
@@ -90,22 +106,22 @@ export default function AgentPipeline({ steps, onApprove, onReject }: Props) {
 
                 {status === 'awaiting-approval' && (
                   <>
-                    <p className="text-sm text-[#c0c0e0] leading-relaxed mb-4">
+                    <p className="text-base text-[#c0c0e0] leading-relaxed mb-4">
                       {agent.id === 'legal-researcher'
                         ? 'Research complete. Review the findings before the Document Drafter proceeds.'
                         : 'Assessment complete. Approve to generate the final output.'}
                     </p>
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                       <button
                         onClick={() => onApprove(agent.id)}
-                        className="flex-1 py-2 rounded-lg text-xs tracking-widest uppercase border border-[#00f5ff44]
+                        className="flex-1 py-3 rounded-lg text-xs tracking-widest uppercase border border-[#00f5ff44]
                           text-[#00f5ff] hover:bg-[#00f5ff11] transition-all cursor-pointer"
                       >
                         ✓ Approve
                       </button>
                       <button
                         onClick={() => onReject(agent.id)}
-                        className="flex-1 py-2 rounded-lg text-xs tracking-widest uppercase border border-[#ff006e44]
+                        className="flex-1 py-3 rounded-lg text-xs tracking-widest uppercase border border-[#ff006e44]
                           text-[#ff006e] hover:bg-[#ff006e11] transition-all cursor-pointer"
                       >
                         ✕ Re-run

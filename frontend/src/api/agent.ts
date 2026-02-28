@@ -163,43 +163,54 @@ export async function runAgent(
   complaint: string,
   _files: File[],
   onStepComplete: (agentId: string) => void,
-  onAwaitApproval?: (agentId: string) => Promise<boolean>
+  onAwaitApproval?: (agentId: string, output: ResearchFindings | string) => Promise<boolean>
 ): Promise<string> {
   try {
-    // Step 1: Legal Researcher runs
-    const startResponse = await startLegalAid(complaint)
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // Step 1: Legal Researcher
+      const startResponse = await startLegalAid(complaint)
 
-    // HITL: pause for legal-researcher approval before drafting
-    if (onAwaitApproval) {
-      const approved = await onAwaitApproval('legal-researcher')
-      if (!approved) {
-        await approveResearch(startResponse.session_id, startResponse.research_findings, false)
-        return runAgent(complaint, _files, onStepComplete, onAwaitApproval)
+      // HITL: pause for legal-researcher approval
+      if (onAwaitApproval) {
+        const approved = await onAwaitApproval('legal-researcher', startResponse.research_findings)
+        if (!approved) {
+          // reject research — loop back to re-run from scratch
+          await approveResearch(startResponse.session_id, startResponse.research_findings, false)
+          continue
+        }
       }
-    }
-    onStepComplete('legal-researcher')
+      onStepComplete('legal-researcher')
 
-    // Step 2: Document Drafter runs
-    const draftResponse = await approveResearch(
-      startResponse.session_id,
-      startResponse.research_findings,
-      true
-    )
-    onStepComplete('document-drafter')
+      // Step 2: Document Drafter
+      let currentDraft = await approveResearch(
+        startResponse.session_id,
+        startResponse.research_findings,
+        true
+      )
+      onStepComplete('document-drafter')
 
-    // HITL: pause for viability-assessor approval before finalizing
-    if (onAwaitApproval) {
-      const approved = await onAwaitApproval('viability-assessor')
-      if (!approved) {
-        return runAgent(complaint, _files, onStepComplete, onAwaitApproval)
+      // HITL loop: viability-assessor can reject and request refinement
+      while (true) {
+        if (onAwaitApproval) {
+          const approved = await onAwaitApproval('viability-assessor', currentDraft.draft)
+          if (!approved) {
+            // Refine draft with empty feedback, stay in same session
+            const refined = await reviewDraft(startResponse.session_id, 'Please revise and improve the draft.')
+            onStepComplete('document-drafter')
+            currentDraft = refined
+            continue
+          }
+        }
+        break
       }
+
+      // Step 3: Expert Reviewer via finalize
+      const finalResponse = await finalizeLegalAid(startResponse.session_id)
+      onStepComplete('viability-assessor')
+
+      return finalResponse.final_document || currentDraft.draft
     }
-
-    // Step 3: Viability Assessor / Expert Reviewer runs via finalize
-    const finalResponse = await finalizeLegalAid(startResponse.session_id)
-    onStepComplete('viability-assessor')
-
-    return finalResponse.final_document || draftResponse.draft
   } catch (error) {
     if (error instanceof APIError) {
       throw new Error(`API Error (${error.status}): ${error.message}`)
