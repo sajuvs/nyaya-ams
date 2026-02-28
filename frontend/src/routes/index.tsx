@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
+import VoiceInput from '../components/VoiceInput'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useGSAP } from '@gsap/react'
@@ -13,6 +14,7 @@ type Phase = 'input' | 'processing' | 'done'
 
 export default function AgentPage() {
   const [phase, setPhase] = useState<Phase>('input')
+  const [inputMode, setInputMode] = useState<'text' | 'voice'>('text')
   const [complaint, setComplaint] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [steps, setSteps] = useState<AgentStep[]>([])
@@ -200,6 +202,7 @@ export default function AgentPage() {
     setDetailAgent(null)
     canViewResults.current = false
     setPhase('input')
+    setInputMode('text')
     setComplaint('')
     setFiles([])
     setSteps([])
@@ -228,18 +231,50 @@ export default function AgentPage() {
         ))}
         <div className="relative z-10 w-full max-w-4xl px-8 flex flex-col items-center">
           <div className="mb-8 text-center w-full">
+            {/* Mode toggle */}
+            <div className="flex items-center justify-center mb-5">
+              <div className="flex items-center gap-1.5 border border-[#1a1a2e] rounded-full p-1.5 bg-[#0a0a0f]">
+                <button
+                  onClick={() => setInputMode('voice')}
+                  className={`flex items-center justify-center w-12 h-10 rounded-full text-sm font-medium transition-all duration-300 cursor-pointer ${
+                    inputMode === 'voice'
+                      ? 'bg-[#ff006e22] text-[#ff006e] border border-[#ff006e44] shadow-[0_0_16px_#ff006e22]'
+                      : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
+                  }`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/>
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setInputMode('text')}
+                  className={`flex items-center justify-center w-12 h-10 rounded-full text-sm font-medium transition-all duration-300 cursor-pointer ${
+                    inputMode === 'text'
+                      ? 'bg-[#00f5ff22] text-[#00f5ff] border border-[#00f5ff44] shadow-[0_0_16px_#00f5ff22]'
+                      : 'text-[#4a4a6a] hover:text-[#e0e0ff]'
+                  }`}
+                >
+                  <span style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: '15px', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1 }}>Abc</span>
+                </button>
+              </div>
+            </div>
             <p className="text-xs tracking-[0.4em] uppercase text-[#4a4a6a] mb-3">AI Legal Assessment</p>
             <h1 className="text-5xl font-bold text-[#e0e0ff] leading-tight mb-2">Know your rights.</h1>
             <p className="text-xl text-[#00f5ff] neon-cyan font-medium">Describe your situation.</p>
           </div>
           <div className="border border-[#1a1a2e] glow-border-cyan rounded-2xl p-8 bg-[#0f0f1a] w-full">
-            <textarea
-              value={complaint}
-              onChange={(e) => setComplaint(e.target.value)}
-              placeholder="e.g. I paid ₹50,000 to a contractor for home renovation. He took the money but never started work and is now unreachable..."
-              rows={11}
-              className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-xl p-5 text-base text-[#e0e0ff] placeholder-[#2a2a4a] resize-none outline-none focus:border-[#00f5ff44] transition-colors duration-300"
-            />
+            <div style={{ height: '320px' }}>
+              {inputMode === 'text' ? (
+                <textarea
+                  value={complaint}
+                  onChange={(e) => setComplaint(e.target.value)}
+                  placeholder="e.g. I paid ₹50,000 to a contractor for home renovation. He took the money but never started work and is now unreachable..."
+                  className="w-full h-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-xl p-5 text-base text-[#e0e0ff] placeholder-[#2a2a4a] resize-none outline-none focus:border-[#00f5ff44] transition-colors duration-300"
+                />
+              ) : (
+                <VoiceInput transcript={complaint} onTranscript={(text) => setComplaint(text)} />
+              )}
+            </div>
 
             <button
               onClick={handleSubmit}
